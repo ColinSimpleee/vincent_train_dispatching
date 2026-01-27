@@ -1,0 +1,82 @@
+{
+  "nodes": {
+    "n_in": { "id": "n_in", "x": 100, "y": 300, "type": "endpoint" },
+    "n_throat_in": { "id": "n_throat_in", "x": 300, "y": 300, "type": "switch" },
+    
+    "n_t1_start": { "id": "n_t1_start", "x": 600, "y": 130, "type": "connector" },
+    "n_t1_end":   { "id": "n_t1_end",   "x": 2100, "y": 130, "type": "connector" },
+    
+    "n_t2_start": { "id": "n_t2_start", "x": 600, "y": 200, "type": "connector" },
+    "n_t2_end":   { "id": "n_t2_end",   "x": 2100, "y": 200, "type": "connector" },
+    
+    "n_t3_start": { "id": "n_t3_start", "x": 600, "y": 400, "type": "connector" },
+    "n_t3_end":   { "id": "n_t3_end",   "x": 2100, "y": 400, "type": "connector" },
+    
+    "n_t4_start": { "id": "n_t4_start", "x": 600, "y": 470, "type": "connector" },
+    "n_t4_end":   { "id": "n_t4_end",   "x": 2100, "y": 470, "type": "connector" },
+    
+    "n_throat_out": { "id": "n_throat_out", "x": 2400, "y": 300, "type": "switch" },
+    "n_out": { "id": "n_out", "x": 4500, "y": 300, "type": "endpoint" }
+  },
+  "edges": {
+    "e_entry": { 
+      "id": "e_entry", 
+      "fromNode": "n_in", "toNode": "n_throat_in", 
+      "length": 200, 
+      "occupiedBy": null 
+    },
+    
+    "e_t1_in": { 
+      "id": "e_t1_in", "fromNode": "n_throat_in", "toNode": "n_t1_start", "length": 400, "occupiedBy": null,
+      "control1": { "x": 450, "y": 300 }, "control2": { "x": 450, "y": 130 }
+    },
+    "e_t1":    { "id": "e_t1",    "fromNode": "n_t1_start",  "toNode": "n_t1_end",   "length": 1500, "occupiedBy": null, "isPlatform": true },
+    "e_t1_out":{ 
+      "id": "e_t1_out","fromNode": "n_t1_end",    "toNode": "n_throat_out","length": 400, "occupiedBy": null,
+      "control1": { "x": 2250, "y": 130 }, "control2": { "x": 2250, "y": 300 }
+    },
+
+    "e_t2_in": { "id": "e_t2_in", "fromNode": "n_throat_in", "toNode": "n_t2_start", "length": 350, "occupiedBy": null, 
+      "control1": { "x": 450, "y": 300 }, "control2": { "x": 450, "y": 200 }
+    },
+    "e_t2":    { "id": "e_t2",    "fromNode": "n_t2_start",  "toNode": "n_t2_end",   "length": 1500, "occupiedBy": null, "isPlatform": true },
+    "e_t2_out":{ "id": "e_t2_out","fromNode": "n_t2_end",    "toNode": "n_throat_out","length": 350, "occupiedBy": null,
+      "control1": { "x": 2250, "y": 200 }, "control2": { "x": 2250, "y": 300 }
+    },
+
+    "e_t3_in": { "id": "e_t3_in", "fromNode": "n_throat_in", "toNode": "n_t3_start", "length": 350, "occupiedBy": null,
+      "control1": { "x": 450, "y": 300 }, "control2": { "x": 450, "y": 400 }
+    },
+    "e_t3":    { "id": "e_t3",    "fromNode": "n_t3_start",  "toNode": "n_t3_end",   "length": 1500, "occupiedBy": null, "isPlatform": true },
+    "e_t3_out":{ "id": "e_t3_out","fromNode": "n_t3_end",    "toNode": "n_throat_out","length": 350, "occupiedBy": null,
+      "control1": { "x": 2250, "y": 400 }, "control2": { "x": 2250, "y": 300 }
+    },
+
+    "e_t4_in": { "id": "e_t4_in", "fromNode": "n_throat_in", "toNode": "n_t4_start", "length": 400, "occupiedBy": null,
+      "control1": { "x": 450, "y": 300 }, "control2": { "x": 450, "y": 470 }
+    },
+    "e_t4":    { "id": "e_t4",    "fromNode": "n_t4_start",  "toNode": "n_t4_end",   "length": 1500, "occupiedBy": null, "isPlatform": true },
+    "e_t4_out":{ "id": "e_t4_out","fromNode": "n_t4_end",    "toNode": "n_throat_out","length": 400, "occupiedBy": null,
+      "control1": { "x": 2250, "y": 470 }, "control2": { "x": 2250, "y": 300 }
+    },
+
+    "e_exit": { 
+      "id": "e_exit", 
+      "fromNode": "n_throat_out", "toNode": "n_out", 
+      "length": 2100, 
+      "occupiedBy": null 
+    }
+  },
+  "platforms": [
+    {
+      "id": "p_island_1",
+      "label": "1号站台 (Island)",
+      "rect": { "x": 600, "y": 140, "w": 1500, "h": 50 }
+    },
+    {
+      "id": "p_island_2",
+      "label": "2号站台 (Island)",
+      "rect": { "x": 600, "y": 410, "w": 1500, "h": 50 }
+    }
+  ]
+}

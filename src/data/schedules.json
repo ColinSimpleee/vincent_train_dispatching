@@ -1,0 +1,26 @@
+[
+  {
+    "id": "G1001",
+    "type": "through",
+    "arriveTick": 5,
+    "stopDuration": 10,
+    "entryDuration": 5, 
+    "exitDuration": 5
+  },
+  {
+    "id": "D2205",
+    "type": "through",
+    "arriveTick": 15,
+    "stopDuration": 15,
+    "entryDuration": 5,
+    "exitDuration": 5
+  },
+  {
+    "id": "K55",
+    "type": "through",
+    "arriveTick": 18,
+    "stopDuration": 30,
+    "entryDuration": 8,
+    "exitDuration": 8
+  }
+]

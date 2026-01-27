@@ -1,0 +1,30 @@
+{
+  "nodes": {
+    "n_in": { "id": "n_in", "x": 50, "y": 200, "type": "endpoint" },
+    "n_throat": { "id": "n_throat", "x": 200, "y": 200, "type": "switch" },
+    
+    "n_p1_start": { "id": "n_p1_start", "x": 300, "y": 100, "type": "connector" },
+    "n_p1_end":   { "id": "n_p1_end",   "x": 700, "y": 100, "type": "connector" },
+    
+    "n_p2_start": { "id": "n_p2_start", "x": 300, "y": 200, "type": "connector" },
+    "n_p2_end":   { "id": "n_p2_end",   "x": 700, "y": 200, "type": "connector" },
+
+    "n_out": { "id": "n_out", "x": 900, "y": 200, "type": "endpoint" }
+  },
+  "edges": {
+    "e_entry": { 
+      "id": "e_entry", 
+      "fromNode": "n_in", "toNode": "n_throat", 
+      "length": 150, 
+      "occupiedBy": null 
+    },
+    
+    "e_p1_entry": { "id": "e_p1_entry", "fromNode": "n_throat", "toNode": "n_p1_start", "length": 141, "occupiedBy": null },
+    "e_p1":       { "id": "e_p1",       "fromNode": "n_p1_start", "toNode": "n_p1_end",   "length": 400, "occupiedBy": null, "isPlatform": true },
+    "e_p1_exit":  { "id": "e_p1_exit",  "fromNode": "n_p1_end",   "toNode": "n_out",      "length": 223, "occupiedBy": null },
+
+    "e_p2_entry": { "id": "e_p2_entry", "fromNode": "n_throat", "toNode": "n_p2_start", "length": 100, "occupiedBy": null },
+    "e_p2":       { "id": "e_p2",       "fromNode": "n_p2_start", "toNode": "n_p2_end",   "length": 400, "occupiedBy": null, "isPlatform": true },
+    "e_p2_exit":  { "id": "e_p2_exit",  "fromNode": "n_p2_end",   "toNode": "n_out",      "length": 200, "occupiedBy": null }
+  }
+}

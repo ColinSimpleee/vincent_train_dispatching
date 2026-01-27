@@ -1,0 +1,17 @@
+{
+  "small": {
+    "name": "Small Station",
+    "platformCount": 4,
+    "description": "A simple 4-track station. Good for beginners."
+  },
+  "large": {
+    "name": "Central Hub",
+    "platformCount": 12,
+    "description": "A massive hub. Requires fast switching."
+  },
+  "terminal": {
+    "name": "End of Line",
+    "platformCount": 6,
+    "description": "Dead-end tracks. Trains must turn around."
+  }
+}
