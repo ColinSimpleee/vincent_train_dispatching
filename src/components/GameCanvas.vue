@@ -261,8 +261,11 @@ function getCarTransform(train: TrainPhysics, carIndex: number) {
                @click="toggleSwitch(node)"
                style="cursor: pointer;"
             >
-               <!-- Switch Body -->
-               <circle r="12" fill="#333" stroke="#fff" stroke-width="2" />
+               <!-- Large Hit Area (Invisible) -->
+               <circle r="30" fill="rgba(0,0,0,0)" />
+               
+               <!-- Switch Body (Slightly larger) -->
+               <circle r="15" fill="#333" stroke="#fff" stroke-width="2" />
                <!-- Indicator -->
                <text 
                   y="4" 
@@ -309,19 +312,22 @@ function getCarTransform(train: TrainPhysics, carIndex: number) {
          <template v-for="node in safeNodes" :key="node.id">
             <g 
                v-if="['switch', 'connector', 'endpoint'].includes(node.type) && node.signalState"
-               :transform="`translate(${node.x}, ${node.y - 15})`" 
+               :transform="`translate(${node.x}, ${node.y - 40})`" 
                @click="toggleSignal(node)"
                style="cursor: pointer;"
             >
-               <!-- Pole -->
-               <line x1="0" y1="0" x2="0" y2="15" stroke="#555" stroke-width="2" />
-               <!-- Light Box -->
-               <rect x="-6" y="-14" width="12" height="14" rx="2" fill="#222" stroke="#444" stroke-width="1" />
-               <!-- Light -->
+               <!-- Large Hit Area (Invisible) -->
+               <rect x="-15" y="-30" width="30" height="50" fill="rgba(0,0,0,0)" />
+
+               <!-- Pole (Extended to reach track) -->
+               <line x1="0" y1="0" x2="0" y2="40" stroke="#555" stroke-width="2" />
+               <!-- Light Box (Larger) -->
+               <rect x="-8" y="-18" width="16" height="18" rx="2" fill="#222" stroke="#444" stroke-width="1" />
+               <!-- Light (Larger) -->
                <circle 
                   cx="0" 
-                  cy="-7" 
-                  r="4" 
+                  cy="-9" 
+                  r="6" 
                   :fill="node.signalState === 'green' ? '#2ecc71' : '#e74c3c'" 
                   :style="node.signalState === 'green' ? 'filter: drop-shadow(0 0 5px #2ecc71);' : 'filter: drop-shadow(0 0 5px #e74c3c);'"
                />
