@@ -132,6 +132,48 @@ function loop(timestamp: number) {
         cancelAnimationFrame(animationFrameId!)
         return 
       }
+      
+      // Auto-remove trains that have completely left the screen
+      // Check if train is on exit edge and has moved far enough
+      for (let i = trains.length - 1; i >= 0; i--) {
+        const train = trains[i];
+        const currentEdge = map.edges[train.currentEdgeId];
+        
+        if (!currentEdge) continue;
+        
+        // Check if train is on any exit-related edge
+        const isExitEdge = train.currentEdgeId === 'e_exit' || 
+                          train.currentEdgeId === 'e_out' || 
+                          train.currentEdgeId.includes('exit') ||
+                          train.currentEdgeId.includes('out');
+        
+        if (isExitEdge) {
+          // When train reaches the end of exit edge, it should be removed
+          // We use a small buffer (50 units) to ensure the head has passed
+          const removalThreshold = currentEdge.length - 50;
+          
+          // Debug log (can be removed later)
+          if (train.position > currentEdge.length - 100) {
+            console.log(`Train ${train.id} on ${train.currentEdgeId}: position=${train.position.toFixed(0)}, edgeLength=${currentEdge.length.toFixed(0)}, threshold=${removalThreshold.toFixed(0)}`);
+          }
+          
+          // If train position has reached near the end of exit edge, remove it
+          if (train.position >= removalThreshold) {
+            console.log(`✅ Removing train ${train.id} - reached end of exit edge`);
+            
+            // Remove from trains array
+            trains.splice(i, 1);
+            
+            // Also remove from waiting queue if present
+            const queueIndex = waitingQueue.findIndex(q => q.id === train.id);
+            if (queueIndex !== -1) {
+              console.log(`  Also removed from queue at index ${queueIndex}`);
+              waitingQueue.splice(queueIndex, 1);
+            }
+          }
+        }
+      }
+      
       accumulator -= FIXED_STEP
   }
 

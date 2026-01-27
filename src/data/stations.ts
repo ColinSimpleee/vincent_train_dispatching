@@ -13,7 +13,7 @@ export interface StationConfig {
 export const stationSmall: StationConfig = {
     id: 'tutorial_small',
     name: '新手教学站',
-    description: '典型的双线中间站。适合练习基本的进路控制与信号闭塞。',
+    description: '基础的四站台车站。适合练习基本的进路控制与信号闭塞。',
     difficulty: 1,
     type: 'small',
     mapData: {
