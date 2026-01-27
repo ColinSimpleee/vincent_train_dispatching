@@ -38,9 +38,9 @@ const trains = reactive<TrainPhysics[]>([])
 // Correct calculation: 1 minute = 60 seconds × 60 ticks/second = 3600 ticks
 // Arrival times with 5-10 min intervals: 5 min, 12 min, 20 min
 const waitingQueue = reactive([
-  { id: 'G9527', schedule: { arriveTick: 18000 }, model: 'CR400AF' },   // 5 minutes = 5 × 3600
-  { id: 'D1006', schedule: { arriveTick: 43200 }, model: 'CRH380A' },   // 12 minutes = 12 × 3600 (间隔7分钟)
-  { id: 'K284',  schedule: { arriveTick: 72000 }, model: 'CR400BF' }    // 20 minutes = 20 × 3600 (间隔8分钟)
+  { id: 'G9528', schedule: { arriveTick: 18000 }, model: 'CR400AF' },   // 5 minutes
+  { id: 'D1006', schedule: { arriveTick: 43200 }, model: 'CRH380A' },   // 12 minutes
+  { id: 'G284',  schedule: { arriveTick: 72000 }, model: 'CR400BF' }    // 20 minutes
 ])
 
 const selectedTrainId = ref<string | null>(null)
@@ -119,7 +119,10 @@ function loop(timestamp: number) {
         // Generate new trains 5-10 minutes in advance
         // 1 minute = 3600 ticks, so 5-10 min = 18000-36000 ticks
         if (waitingQueue.length < 5 && Math.random() < 0.005) {
-            const id = 'G' + Math.floor(Math.random() * 9000 + 1000);
+            const prefix = Math.random() > 0.5 ? 'G' : 'D';
+            // Rule: Rightward (Up) = Even numbers
+            const num = Math.floor(Math.random() * 4500 + 500) * 2;
+            const id = prefix + num;
             const advanceTime = 18000 + Math.floor(Math.random() * 18000); // 5-10 minutes
             waitingQueue.push({
                 id: id,
