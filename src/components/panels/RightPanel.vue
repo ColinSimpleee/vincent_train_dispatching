@@ -2,7 +2,7 @@
 import type { TrainPhysics } from '../../core/RailGraph';
 
 defineProps<{
-  tick: number;
+  gameTime: string; // Virtual game time in HH:MM:SS format
   selectedTrain: TrainPhysics | null; // Active or Queue item
   onAction: (action: string) => void;
   gameSpeed: number;
@@ -14,8 +14,8 @@ defineProps<{
   <div class="panel-right">
     <!-- Clock Module -->
     <div class="module clock">
-       <div class="label">当前时刻 (TICK)</div>
-       <div class="digital">{{ tick }}</div>
+       <div class="label">当前时刻</div>
+       <div class="digital">{{ gameTime }}</div>
     </div>
 
     <!-- Info Module -->

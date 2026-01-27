@@ -8,6 +8,23 @@ import { PhysicsEngine } from './core/PhysicsEngine'
 import type { RailMap, TrainPhysics } from './core/RailGraph'
 import type { StationConfig } from './data/stations'
 
+// Virtual Game Time Configuration
+// China Railway Operation: 06:00 - 23:00
+// Start time range: 07:00 (06:00+1h) to 19:00 (23:00-4h)
+const TICKS_PER_SECOND = 60 // 60 ticks = 1 game second
+
+// Generate random start time between 07:00 and 19:00
+function generateRandomStartTime() {
+  const minHour = 7  // 06:00 + 1 hour
+  const maxHour = 19 // 23:00 - 4 hours
+  const randomHour = Math.floor(Math.random() * (maxHour - minHour + 1)) + minHour
+  const randomMinute = Math.floor(Math.random() * 60)
+  const randomSecond = Math.floor(Math.random() * 60)
+  return { hours: randomHour, minutes: randomMinute, seconds: randomSecond }
+}
+
+const gameStartTime = ref(generateRandomStartTime())
+
 // --- State ---
 const view = ref<'start' | 'game'>('start')
 const activeStation = ref<StationConfig | null>(null)
@@ -52,6 +69,30 @@ const selectedTrain = computed(() => {
       } as any
   }
   return null
+})
+
+// Virtual Game Time (HH:MM:SS format)
+const gameTime = computed(() => {
+  // Calculate total seconds elapsed in game
+  const totalGameSeconds = Math.floor(tick.value / TICKS_PER_SECOND)
+  
+  // Add to start time
+  let hours = gameStartTime.value.hours
+  let minutes = gameStartTime.value.minutes
+  let seconds = gameStartTime.value.seconds + totalGameSeconds
+  
+  // Handle overflow
+  minutes += Math.floor(seconds / 60)
+  seconds = seconds % 60
+  
+  hours += Math.floor(minutes / 60)
+  minutes = minutes % 60
+  
+  hours = hours % 24 // Wrap at 24 hours
+  
+  // Format as HH:MM:SS
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`
 })
 
 // --- Loop ---
@@ -107,6 +148,9 @@ function setGameSpeed(s: number) {
 // --- Navigation ---
 function handleStationSelect(config: StationConfig) {
     activeStation.value = config
+    
+    // Regenerate random start time for new game
+    gameStartTime.value = generateRandomStartTime()
     
     // Load Map Data
     // Note: We deep copy to avoid mutating the template
@@ -360,7 +404,7 @@ onUnmounted(() => {
     <!-- Right -->
     <aside class="layout-side">
         <RightPanel 
-            :tick="Math.floor(tick / 60)" 
+            :gameTime="gameTime" 
             :selectedTrain="selectedTrain"
             :onAction="handleAction"
             :gameSpeed="gameSpeed"

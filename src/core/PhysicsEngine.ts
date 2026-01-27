@@ -162,19 +162,45 @@ export class PhysicsEngine {
 
   // --- Phase 1.5 ---
   private static detectPhysicalCollisions(trains: TrainPhysics[], map: RailMap) {
-      const TRAIN_LENGTH = 180; // Safety buffer (visual length ~240, but overlap tolerance)
+      // ACTUAL PENETRATION DETECTION (穿模检测)
+      // Check if ANY PART of train A overlaps with ANY PART of train B
+      
+      // Train physical dimensions
+      const CAR_PITCH = 30; // Distance between car centers
+      
       for (let i = 0; i < trains.length; i++) {
           for (let j = i + 1; j < trains.length; j++) {
               const t1 = trains[i];
               const t2 = trains[j];
 
-              // 1. Same Edge Collision
+              // Calculate train lengths (head to tail)
+              const t1Length = (t1.isCoupled ? 16 : 8) * CAR_PITCH;
+              const t2Length = (t2.isCoupled ? 16 : 8) * CAR_PITCH;
+              
+              // Train positions: position is the HEAD (front), tail is behind
+              const t1Head = t1.position;
+              const t1Tail = t1.position - t1Length;
+              
+              const t2Head = t2.position;
+              const t2Tail = t2.position - t2Length;
+
+              // 1. Same Edge Collision - Check if train segments overlap
               if (t1.currentEdgeId === t2.currentEdgeId) {
-                  const dist = Math.abs(t1.position - t2.position);
-                  if (dist < TRAIN_LENGTH) {
+                  // Two segments overlap if:
+                  // - t1's head is past t2's tail AND t1's tail is before t2's head
+                  // In other words: NOT (t1 completely before t2 OR t1 completely after t2)
+                  const t1CompletelyBefore = t1Head < t2Tail;
+                  const t1CompletelyAfter = t1Tail > t2Head;
+                  
+                  const overlapping = !(t1CompletelyBefore || t1CompletelyAfter);
+                  
+                  if (overlapping) {
                       PhysicsEngine.triggerCollision(t1.id, t2.id);
                   }
               }
+              
+              // TODO: Cross-edge collision (when tail is on previous edge)
+              // This would require checking if t1's tail (on previous edge) overlaps with t2
           }
       }
   }
