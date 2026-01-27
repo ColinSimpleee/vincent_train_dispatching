@@ -1,11 +1,40 @@
 <script setup lang="ts">
 import type { TrainPhysics } from '../../core/RailGraph';
 
-defineProps<{
+const props = defineProps<{
   queue: any[]; // MVP simplified
   onSelect: (id: string) => void;
   selectedId: string | null;
+  gameStartTime?: { hours: number; minutes: number; seconds: number }; // Game start time
+  currentTick?: number; // Current game tick
 }>();
+
+// Convert tick to HH:MM:SS format
+function tickToTime(tick: number): string {
+  const TICKS_PER_SECOND = 60;
+  const startTime = props.gameStartTime || { hours: 8, minutes: 0, seconds: 0 };
+  
+  // Calculate total seconds from start
+  const totalGameSeconds = Math.floor(tick / TICKS_PER_SECOND);
+  
+  // Add to start time
+  let hours = startTime.hours;
+  let minutes = startTime.minutes;
+  let seconds = startTime.seconds + totalGameSeconds;
+  
+  // Handle overflow
+  minutes += Math.floor(seconds / 60);
+  seconds = seconds % 60;
+  
+  hours += Math.floor(minutes / 60);
+  minutes = minutes % 60;
+  
+  hours = hours % 24; // Wrap at 24 hours
+  
+  // Format as HH:MM:SS
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+}
 </script>
 
 <template>
@@ -24,7 +53,7 @@ defineProps<{
            <span class="status-badge">进站</span>
          </div>
          <div class="item-meta">
-            计划到达: Tick {{ item.schedule.arriveTick }}
+            计划到达: {{ tickToTime(item.schedule.arriveTick) }}
          </div>
        </div>
     </div>

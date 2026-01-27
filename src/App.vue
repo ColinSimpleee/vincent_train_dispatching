@@ -35,10 +35,12 @@ const map = reactive<RailMap>({ nodes: {}, edges: {}, platforms: [] }) // Init e
 const trains = reactive<TrainPhysics[]>([])
 
 // MVP Queue (Mock Data for Left Panel)
+// Correct calculation: 1 minute = 60 seconds × 60 ticks/second = 3600 ticks
+// Arrival times with 5-10 min intervals: 5 min, 12 min, 20 min
 const waitingQueue = reactive([
-  { id: 'G9527', schedule: { arriveTick: 9 }, model: 'CR400AF' },
-  { id: 'D1006', schedule: { arriveTick: 12 }, model: 'CRH380A' },
-  { id: 'K284',  schedule: { arriveTick: 15 }, model: 'CR400BF' }
+  { id: 'G9527', schedule: { arriveTick: 18000 }, model: 'CR400AF' },   // 5 minutes = 5 × 3600
+  { id: 'D1006', schedule: { arriveTick: 43200 }, model: 'CRH380A' },   // 12 minutes = 12 × 3600 (间隔7分钟)
+  { id: 'K284',  schedule: { arriveTick: 72000 }, model: 'CR400BF' }    // 20 minutes = 20 × 3600 (间隔8分钟)
 ])
 
 const selectedTrainId = ref<string | null>(null)
@@ -114,11 +116,14 @@ function loop(timestamp: number) {
         tick.value++ 
         
         // Auto refill queue (Scaled with Game Time)
+        // Generate new trains 5-10 minutes in advance
+        // 1 minute = 3600 ticks, so 5-10 min = 18000-36000 ticks
         if (waitingQueue.length < 5 && Math.random() < 0.005) {
             const id = 'G' + Math.floor(Math.random() * 9000 + 1000);
+            const advanceTime = 18000 + Math.floor(Math.random() * 18000); // 5-10 minutes
             waitingQueue.push({
                 id: id,
-                schedule: { arriveTick: tick.value + 20 },
+                schedule: { arriveTick: tick.value + advanceTime },
                 model: ['CR400AF', 'CR400BF', 'CRH380A'][Math.floor(Math.random()*3)] as any 
             });
         }
@@ -342,6 +347,7 @@ function spawnTrainIntoMap(id: string) {
         speed: 60,
         state: 'moving',
         path: path,
+        visitedPath: [], // Initialize empty visited path for tail rendering
         modelType: (waitingQueue[qIndex]?.model as any) || 'CR400AF',
         isCoupled: Math.random() < 0.2
     }
@@ -387,6 +393,8 @@ onUnmounted(() => {
             :queue="waitingQueue" 
             :selectedId="selectedTrainId"
             :onSelect="handleSelect"
+            :gameStartTime="gameStartTime"
+            :currentTick="tick"
         />
     </aside>
 

@@ -84,7 +84,8 @@ export class PhysicsEngine {
           train.state = 'stopped';
           
           train.passengerState = 'BOARDING';
-          train.boardingTimer = 300; // 5 seconds (60tps)
+          // Random dwell time: 1-2 minutes (3600-7200 ticks at 60tps)
+          train.boardingTimer = 3600 + Math.floor(Math.random() * 3600); // 1-2 minutes
           train.lastServicedEdgeId = train.currentEdgeId; 
           return;
       }
@@ -172,10 +173,14 @@ export class PhysicsEngine {
           for (let j = i + 1; j < trains.length; j++) {
               const t1 = trains[i];
               const t2 = trains[j];
+              
+              // Safety check: skip if trains are undefined
+              if (!t1 || !t2) continue;
 
               // Calculate train lengths (head to tail)
-              const t1Length = (t1.isCoupled ? 16 : 8) * CAR_PITCH;
-              const t2Length = (t2.isCoupled ? 16 : 8) * CAR_PITCH;
+              // Default to 8 cars if isCoupled is undefined
+              const t1Length = (t1.isCoupled ?? false ? 16 : 8) * CAR_PITCH;
+              const t2Length = (t2.isCoupled ?? false ? 16 : 8) * CAR_PITCH;
               
               // Train positions: position is the HEAD (front), tail is behind
               const t1Head = t1.position;
