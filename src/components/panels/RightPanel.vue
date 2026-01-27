@@ -42,8 +42,8 @@ defineProps<{
        未选择列车
     </div>
 
-    <!-- Controls Module -->
-    <div class="module controls">
+    <!-- Controls Module - Only show when train is selected -->
+    <div class="module controls" v-if="selectedTrain">
        <div class="label">调度指令</div>
        <div class="btn-grid">
          <button class="btn primary" @click="onAction('ADMIT')">允许进站</button>

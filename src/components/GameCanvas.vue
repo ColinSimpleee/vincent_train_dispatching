@@ -11,12 +11,33 @@ const emit = defineEmits<{
   (e: 'train-action', payload: { id: string, action: string }): void
 }>()
 
+// Safe computed properties for map data
+const safeEdges = computed(() => {
+  if (!props.map?.edges) return [];
+  try {
+    return Object.values(props.map.edges).filter(e => e != null);
+  } catch (error) {
+    console.error('Error accessing map.edges:', error);
+    return [];
+  }
+});
+
+const safeNodes = computed(() => {
+  if (!props.map?.nodes) return [];
+  try {
+    return Object.values(props.map.nodes).filter(n => n != null);
+  } catch (error) {
+    console.error('Error accessing map.nodes:', error);
+    return [];
+  }
+});
+
 // Define car pitch (car length + gap)
 const TOTAL_PITCH = 30; // Example value, adjust as needed
 
 // Helper to find coords
 function getNode(id: string) {
-  return props.map.nodes[id] || { x: 0, y: 0 };
+  return props.map?.nodes?.[id] || { x: 0, y: 0 };
 }
 
 // Calculate Train Position (SVG Transform)
@@ -71,22 +92,33 @@ function cubicBezierAngle(t: number, p0: any, p1: any, p2: any, p3: any) {
 function getOutgoingEdges(nodeId: string) {
     // Return edges where this node is the SOURCE
     // Sort by ID to be deterministic
-    return Object.values(props.map.edges)
-        .filter(e => e.fromNode === nodeId)
-        .sort((a, b) => a.id.localeCompare(b.id));
+    if (!props.map?.edges) return [];
+    
+    try {
+        return Object.values(props.map.edges)
+            .filter(e => e?.fromNode === nodeId)
+            .sort((a, b) => (a?.id || '').localeCompare(b?.id || ''));
+    } catch (error) {
+        console.error('Error in getOutgoingEdges:', error);
+        return [];
+    }
 }
 
 function getActiveEdge(node: any) {
-    if (node.type !== 'switch') return null;
+    if (!node || node.type !== 'switch') return null;
+    
     const edges = getOutgoingEdges(node.id);
-    if (edges.length === 0) return null;
+    if (!edges || !Array.isArray(edges) || edges.length === 0) return null;
+    
     const index = node.switchState || 0;
     return edges[index % edges.length];
 }
 
 function toggleSwitch(node: any) {
+    if (!node) return;
+    
     const edges = getOutgoingEdges(node.id);
-    if (edges.length === 0) return;
+    if (!edges || edges.length === 0) return;
     
     // Increment State
     const current = node.switchState || 0;
@@ -94,6 +126,8 @@ function toggleSwitch(node: any) {
 }
 
 function toggleSignal(node: any) {
+    if (!node) return;
+    
     // Default is 'green' (undefined/null allowed pass)
     // Toggle: red -> green, green -> red, undefined -> red
     const current = node.signalState || 'green';
@@ -196,7 +230,7 @@ function getCarTransform(train: TrainPhysics, carIndex: number) {
       <!-- Layer 1: Track Bed (Ballast) -->
       <g class="track-bed">
         <path 
-          v-for="edge in map.edges" 
+          v-for="edge in safeEdges" 
           :key="edge.id"
           :d="getEdgePath(edge)"
           stroke="#111"
@@ -209,7 +243,7 @@ function getCarTransform(train: TrainPhysics, carIndex: number) {
       <!-- Layer 2: Rails -->
       <g class="rails">
         <path 
-          v-for="edge in map.edges" 
+          v-for="edge in safeEdges" 
           :key="`rail-${edge.id}`"
           :d="getEdgePath(edge)"
           stroke="#555"
@@ -220,7 +254,7 @@ function getCarTransform(train: TrainPhysics, carIndex: number) {
       
       <!-- Layer 5: Controls (Switches) -->
       <g class="controls">
-         <template v-for="node in map.nodes" :key="node.id">
+         <template v-for="node in safeNodes" :key="node.id">
             <g 
                v-if="node.type === 'switch'"
                :transform="`translate(${node.x}, ${node.y})`"
@@ -255,7 +289,7 @@ function getCarTransform(train: TrainPhysics, carIndex: number) {
 
       <!-- Layer 5.5: Buffer Stops -->
       <g class="buffers">
-         <template v-for="node in map.nodes" :key="node.id">
+         <template v-for="node in safeNodes" :key="node.id">
             <g 
                v-if="node.type === 'buffer_stop'"
                :transform="`translate(${node.x}, ${node.y})`"
@@ -272,7 +306,7 @@ function getCarTransform(train: TrainPhysics, carIndex: number) {
 
       <!-- Layer 6: Signals (Interactive - Topmost) -->
       <g class="signals">
-         <template v-for="node in map.nodes" :key="node.id">
+         <template v-for="node in safeNodes" :key="node.id">
             <g 
                v-if="['switch', 'connector', 'endpoint'].includes(node.type) && node.signalState"
                :transform="`translate(${node.x}, ${node.y - 15})`" 

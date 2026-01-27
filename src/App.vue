@@ -237,11 +237,11 @@ function findPath(startNodeId: string, targetNodeId: string, map: RailMap): stri
             // 1. Resume if already exiting
             if (current.endsWith('_out') || current === 'e_exit' || current === 'e_out') {
                  // Try to resolve path dynamically if empty
-                 if (t.path.length === 0) {
+                 if (!t.path || t.path.length === 0) {
                      const edge = map.edges[current];
                      t.path = findPath(edge.toNode, 'n_out', map);
                      // If still empty, maybe just move blindly (e_exit)
-                     if (t.path.length === 0 && current !== 'e_exit' && current !== 'e_out') {
+                     if (!t.path || (t.path.length === 0 && current !== 'e_exit' && current !== 'e_out')) {
                          t.path = ['e_exit']; // Fallback
                      }
                  }
@@ -288,7 +288,8 @@ function findPath(startNodeId: string, targetNodeId: string, map: RailMap): stri
                  const currEdgeObj = map.edges[current];
                  if (currEdgeObj) {
                      t.path = findPath(currEdgeObj.toNode, target, map);
-                     if (t.path.length > 0) {
+                     // Set path to exit
+                     if (t.path && t.path.length > 0) {
                          t.state = 'moving';
                          t.speed = 60;
                      }
@@ -391,6 +392,7 @@ onUnmounted(() => {
     <aside class="layout-side">
         <LeftPanel 
             :queue="waitingQueue" 
+            :trains="trains"
             :selectedId="selectedTrainId"
             :onSelect="handleSelect"
             :gameStartTime="gameStartTime"

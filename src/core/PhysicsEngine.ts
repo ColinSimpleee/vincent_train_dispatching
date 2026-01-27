@@ -91,7 +91,7 @@ export class PhysicsEngine {
       }
       
       // Stop Condition: No Path left (Arrived)
-      if (train.path.length === 0) {
+      if (!train.path || train.path.length === 0) {
           train.position = currentEdge.length;
           train.speed = 0;
           train.state = 'stopped';
@@ -264,7 +264,7 @@ export class PhysicsEngine {
         train.position = train.nextMoveIntent.overflowDistance;
         
         // Consume path only if we followed the plan
-        if (train.path.length > 0 && train.path[0] === nextEdgeId) {
+        if (train.path && train.path.length > 0 && train.path[0] === nextEdgeId) {
             train.path.shift(); 
         }
         
