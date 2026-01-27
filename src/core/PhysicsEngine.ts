@@ -2,7 +2,7 @@ import type { TrainPhysics, RailMap } from './RailGraph.ts';
 
 export class PhysicsEngine {
   
-  static update(trains: TrainPhysics[], map: RailMap, dt: number): void {
+  static update(trains: TrainPhysics[], map: RailMap, dt: number, currentTick: number): void {
     // Phase 0: Passenger Logic
     for (const train of trains) {
         PhysicsEngine.handlePassengerLogic(train);
@@ -11,7 +11,7 @@ export class PhysicsEngine {
     // Phase 1: Compute Intents & Resume Checks
     for (const train of trains) {
       if (train.state === 'moving') {
-          PhysicsEngine.computeIntent(train, map, dt);
+          PhysicsEngine.computeIntent(train, map, dt, currentTick);
       } else if (train.state === 'stopped') {
           PhysicsEngine.tryResume(train, map);
       }
@@ -25,6 +25,79 @@ export class PhysicsEngine {
 
     // Phase 3: Commit Updates
     PhysicsEngine.commitUpdates(trains, map);
+  }
+
+  private static computeIntent(train: TrainPhysics, map: RailMap, dt: number, currentTick: number): void {
+    if (train.state !== 'moving' || train.speed === 0) return;
+
+    let distToMove = train.speed * dt;
+    let tPos = train.position + distToMove;
+    const currentEdge = map.edges[train.currentEdgeId];
+
+    // Check Boundary
+    if (tPos >= currentEdge.length) {
+      const overflow = tPos - currentEdge.length;
+
+      // Special Rule: Platform Stop (Auto-Service)
+      // If we hit the end of a platform, and we haven't serviced it yet:
+      if (currentEdge.isPlatform && train.lastServicedEdgeId !== train.currentEdgeId) {
+          train.position = currentEdge.length;
+          train.speed = 0;
+          train.state = 'stopped';
+          
+          train.passengerState = 'BOARDING';
+          // Record Schedule Info
+          train.arrivalTick = currentTick;
+          const dwell = 1800 + Math.floor(Math.random() * 1800); // 30s-1 minute
+          train.boardingTimer = dwell;
+          train.stopDuration = dwell;
+          train.stopBuffer = 3600 + Math.floor(Math.random() * 1800); // 1-1.5 min buffer
+          
+          train.lastServicedEdgeId = train.currentEdgeId; 
+          return;
+      }
+      
+      // Stop Condition: No Path left (Arrived)
+      if (!train.path || train.path.length === 0) {
+          train.position = currentEdge.length;
+          train.speed = 0;
+          train.state = 'stopped';
+          return;
+      }
+
+      // 1. Resolve Next Edge based on Topology & Switch State
+      const nextNode = map.nodes[currentEdge.toNode];
+      const nextEdgeId = PhysicsEngine.resolveNextEdge(nextNode, map);
+      
+      // --- RULES ENFORCEMENT ---
+      
+      // Rule 1: Signal Compliance (Stop at Red)
+      if (nextNode && nextNode.signalState === 'red') {
+             train.position = currentEdge.length;
+             train.speed = 0;
+             train.state = 'stopped';
+             return; 
+      }
+
+      // Rule 2: Switch Safety / Wrong Path
+      // (Implicitly handled by resolveNextEdge)
+
+      // Rule 3: Block Occupancy -> DISABLED by User Request ("Ghost Mode")
+      // const nextEdge = map.edges[nextEdgeId];
+      // if (nextEdge.occupiedBy !== null) { ... }
+
+      // ---------------------
+
+      // Register Intent (Path is Clear)
+      train.nextMoveIntent = {
+        targetEdgeId: nextEdgeId,
+        overflowDistance: overflow
+      };
+    } else {
+      // Normal Move
+      train.position = tPos;
+      train.nextMoveIntent = undefined;
+    }
   }
 
   private static handlePassengerLogic(train: TrainPhysics) {
@@ -62,76 +135,6 @@ export class PhysicsEngine {
       // All Clear -> Resume
       train.state = 'moving';
       train.speed = 60; // Resume speed
-  }
-
-  // --- Phase 1 ---
-  private static computeIntent(train: TrainPhysics, map: RailMap, dt: number): void {
-    if (train.state !== 'moving' || train.speed === 0) return;
-
-    let distToMove = train.speed * dt;
-    let tPos = train.position + distToMove;
-    const currentEdge = map.edges[train.currentEdgeId];
-
-    // Check Boundary
-    if (tPos >= currentEdge.length) {
-      const overflow = tPos - currentEdge.length;
-
-      // Special Rule: Platform Stop (Auto-Service)
-      // If we hit the end of a platform, and we haven't serviced it yet:
-      if (currentEdge.isPlatform && train.lastServicedEdgeId !== train.currentEdgeId) {
-          train.position = currentEdge.length;
-          train.speed = 0;
-          train.state = 'stopped';
-          
-          train.passengerState = 'BOARDING';
-          // Random dwell time: 1-2 minutes (3600-7200 ticks at 60tps)
-          train.boardingTimer = 3600 + Math.floor(Math.random() * 3600); // 1-2 minutes
-          train.lastServicedEdgeId = train.currentEdgeId; 
-          return;
-      }
-      
-      // Stop Condition: No Path left (Arrived)
-      if (!train.path || train.path.length === 0) {
-          train.position = currentEdge.length;
-          train.speed = 0;
-          train.state = 'stopped';
-          return;
-      }
-
-      // 1. Resolve Next Edge based on Topology & Switch State
-      const nextNode = map.nodes[currentEdge.toNode];
-      const nextEdgeId = PhysicsEngine.resolveNextEdge(nextNode, map);
-      
-
-      // --- RULES ENFORCEMENT ---
-      
-      // Rule 1: Signal Compliance (Stop at Red)
-      if (nextNode && nextNode.signalState === 'red') {
-             train.position = currentEdge.length;
-             train.speed = 0;
-             train.state = 'stopped';
-             return; 
-      }
-
-      // Rule 2: Switch Safety / Wrong Path
-      // (Implicitly handled by resolveNextEdge)
-
-      // Rule 3: Block Occupancy -> DISABLED by User Request ("Ghost Mode")
-      // const nextEdge = map.edges[nextEdgeId];
-      // if (nextEdge.occupiedBy !== null) { ... }
-
-      // ---------------------
-
-      // Register Intent (Path is Clear)
-      train.nextMoveIntent = {
-        targetEdgeId: nextEdgeId,
-        overflowDistance: overflow
-      };
-    } else {
-      // Normal Move
-      train.position = tPos;
-      train.nextMoveIntent = undefined;
-    }
   }
   
   private static resolveNextEdge(node: any, map: RailMap): string | undefined {
@@ -176,6 +179,9 @@ export class PhysicsEngine {
               
               // Safety check: skip if trains are undefined
               if (!t1 || !t2) continue;
+              
+              // Skip collision check if either train has passed the control boundary (Handed Over)
+              if (t1.isHandedOver || t2.isHandedOver) continue;
 
               // Calculate train lengths (head to tail)
               // Default to 8 cars if isCoupled is undefined

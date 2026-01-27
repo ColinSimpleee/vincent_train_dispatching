@@ -66,4 +66,12 @@ export interface TrainPhysics {
   passengerState?: 'BOARDING' | 'READY';
   boardingTimer?: number; 
   lastServicedEdgeId?: string; // To prevent re-stopping at same platform
+  
+  // Control Handover
+  isHandedOver?: boolean; // True if train has passed the control boundary
+
+  // Schedule / Timing
+  arrivalTick?: number;      // Actual arrival tick at platform
+  stopDuration?: number;     // Assigned stop duration (ticks)
+  stopBuffer?: number;       // Random buffer (60-90s) for departure
 }

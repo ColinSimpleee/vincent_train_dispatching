@@ -319,13 +319,24 @@ function getCarTransform(train: TrainPhysics, carIndex: number) {
                <rect x="-6" y="-14" width="12" height="14" rx="2" fill="#222" stroke="#444" stroke-width="1" />
                <!-- Light -->
                <circle 
-                  cx="0" cy="-7" r="4" 
+                  cx="0" 
+                  cy="-7" 
+                  r="4" 
                   :fill="node.signalState === 'green' ? '#2ecc71' : '#e74c3c'" 
-                  stroke="#000" stroke-width="1"
-                  :filter="node.signalState === 'green' ? 'url(#glow-green)' : 'url(#glow-red)'"
+                  :style="node.signalState === 'green' ? 'filter: drop-shadow(0 0 5px #2ecc71);' : 'filter: drop-shadow(0 0 5px #e74c3c);'"
                />
             </g>
          </template>
+
+         <!-- Control Boundary Marker (Hardcoded for e_exit for this request) -->
+         <g transform="translate(2100, 300)" style="pointer-events: none;">
+            <!-- Red Ring -->
+            <circle r="8" fill="none" stroke="#e74c3c" stroke-width="2" stroke-dasharray="2,2" />
+            <!-- Limit Line -->
+            <line x1="0" y1="-12" x2="0" y2="12" stroke="#e74c3c" stroke-width="2" />
+            <!-- Label -->
+            <text x="0" y="-16" fill="#e74c3c" font-size="10" text-anchor="middle">LIMIT</text>
+         </g>
       </g>
       
       <defs>

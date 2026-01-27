@@ -39,7 +39,7 @@ export const stationSmall: StationConfig = {
 
             // Right Throat
             "n_sw_R": { "id": "n_sw_R", "x": 1700, "y": 300, "type": "switch", "signalState": "green" },
-            "n_R_out": { "id": "n_R_out", "x": 4500, "y": 300, "type": "endpoint" }
+            "n_R_out": { "id": "n_R_out", "x": 10000, "y": 300, "type": "endpoint" }
         },
         edges: {
             "e_entry_L": { "id": "e_entry_L", "fromNode": "n_L_in", "toNode": "n_sw_L", "length": 200, "occupiedBy": null },
@@ -62,7 +62,7 @@ export const stationSmall: StationConfig = {
             "t3_out": { "id": "t3_out", "fromNode": "n_p3_end", "toNode": "n_sw_R", "length": 300, "occupiedBy": null, "control1": {x:1600,y:340}, "control2": {x:1600,y:300} },
             "t4_out": { "id": "t4_out", "fromNode": "n_p4_end", "toNode": "n_sw_R", "length": 300, "occupiedBy": null, "control1": {x:1600,y:400}, "control2": {x:1600,y:300} },
             
-            "e_exit": { "id": "e_exit", "fromNode": "n_sw_R", "toNode": "n_R_out", "length": 3000, "occupiedBy": null },
+            "e_exit": { "id": "e_exit", "fromNode": "n_sw_R", "toNode": "n_R_out", "length": 8300, "occupiedBy": null },
         },
         platforms: [
             { id: "p1", label: "1 (Main)", rect: { x: 500, y: 210, w: 1000, h: 40 } }, // Platform Island 1 (Between T1/T2)

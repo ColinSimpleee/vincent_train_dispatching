@@ -148,8 +148,13 @@ function estimateArrivalTime(train: TrainPhysics): string {
 // Estimate departure time
 function estimateDepartureTime(train: TrainPhysics): string {
   const currentTick = props.currentTick || 0;
+  // User req: Arrival + Stop + Buffer
+  if (train.arrivalTick && train.stopDuration && train.stopBuffer) {
+      return tickToTime(train.arrivalTick + train.stopDuration + train.stopBuffer);
+  }
+  // Fallback
   const remainingTicks = train.boardingTimer || 0;
-  return tickToTime(currentTick + remainingTicks);
+  return tickToTime(currentTick + remainingTicks + 3600);
 }
 
 // Get punctuality status
@@ -186,7 +191,10 @@ function getPunctuality(scheduledTick: number) {
 const allTrains = computed(() => {
   try {
     const queueIds = (props.queue || []).map(q => q?.id).filter(Boolean);
-    const activeIds = (props.trains || []).map(t => t?.id).filter(Boolean);
+    // Filter out handed-over trains so they disappear from the list
+    const activeIds = (props.trains || [])
+        .filter(t => t?.id && !t.isHandedOver)
+        .map(t => t.id);
     const trainIds = new Set([...queueIds, ...activeIds]);
     
     return Array.from(trainIds).map(id => {

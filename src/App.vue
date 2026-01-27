@@ -112,7 +112,7 @@ function loop(timestamp: number) {
 
   while (accumulator >= FIXED_STEP) {
       try {
-        PhysicsEngine.update(trains, map, FIXED_STEP)
+        PhysicsEngine.update(trains, map, FIXED_STEP, tick.value)
         tick.value++ 
         
         // Auto refill queue (Scaled with Game Time)
@@ -142,14 +142,26 @@ function loop(timestamp: number) {
         if (!currentEdge) continue;
         
         // Check if train is on any exit-related edge
+        // CRITICAL FIX: Do NOT use .includes('out') broadly as it matches t1_out, t2_out etc.
         const isExitEdge = train.currentEdgeId === 'e_exit' || 
                           train.currentEdgeId === 'e_out' || 
-                          train.currentEdgeId.includes('exit') ||
-                          train.currentEdgeId.includes('out');
+                          train.currentEdgeId.startsWith('e_exit');
         
         if (isExitEdge) {
+          // 1. Check Control Handover (Remove from UI Panel)
+          // Threshold: 400 units from start of e_exit (x = 1700 + 400 = 2100)
+          // User wants "Middle of train passes red circle"
+          const numCars = train.isCoupled ? 16 : 8;
+          const halfLength = (numCars * 30) / 2; 
+          const HANDOVER_THRESHOLD = 400 + halfLength;
+          
+          if (train.position >= HANDOVER_THRESHOLD && !train.isHandedOver) {
+             train.isHandedOver = true;
+             console.log(`Train ${train.id} Handed Over (Exiting Control Area)`);
+          }
+
+          // 2. Physical Removal (Remove from Screen/Memory)
           // When train reaches the end of exit edge, it should be removed
-          // We use a small buffer (50 units) to ensure the head has passed
           const removalThreshold = currentEdge.length - 50;
           
           // Debug log (can be removed later)
@@ -277,16 +289,17 @@ function findPath(startNodeId: string, targetNodeId: string, map: RailMap): stri
             const reverse = current + '_rev';
 
             // 1. Resume if already exiting
+            t.passengerState = undefined; // Clear IMMEDIATELY to prevent state lock
+            
             if (current.endsWith('_out') || current === 'e_exit' || current === 'e_out') {
-                 // Try to resolve path dynamically if empty
-                 if (!t.path || t.path.length === 0) {
+                 try {
                      const edge = map.edges[current];
-                     t.path = findPath(edge.toNode, 'n_out', map);
-                     // If still empty, maybe just move blindly (e_exit)
-                     if (!t.path || (t.path.length === 0 && current !== 'e_exit' && current !== 'e_out')) {
-                         t.path = ['e_exit']; // Fallback
-                     }
+                     t.path = findPath(edge.toNode, 'n_out', map) || [];
+                 } catch (e) {
+                     console.error("Pathfinding error:", e);
+                     t.path = [];
                  }
+                 
                  t.state = 'moving';
                  t.speed = 80;
                  return;
@@ -295,20 +308,16 @@ function findPath(startNodeId: string, targetNodeId: string, map: RailMap): stri
             // 2. Terminal Turnaround
             if (map.edges[reverse]) {
                 const revEdge = map.edges[reverse];
-                // Teleport to the "Return" track
                 t.currentEdgeId = reverse;
                 t.position = 0; 
                 
-                // Calculate path to exit
-                // Start from the END of the reverse edge (e.g. n_p1_start)
-                const startNode = revEdge.toNode;
-                // Target is generic 'n_out' (or 'n_R_out' for small station? No, small station uses direct)
-                // Let's try 'n_out' first, if fails maybe 'n_R_out'.
-                // Or define target based on station type?
-                // For Terminal, target is 'n_out'. For Small, 'n_R_out'.
-                const target = map.nodes['n_out'] ? 'n_out' : 'n_R_out';
-                
-                t.path = findPath(startNode, target, map);
+                try {
+                    const startNode = revEdge.toNode;
+                    const target = map.nodes['n_out'] ? 'n_out' : 'n_R_out';
+                    t.path = findPath(startNode, target, map) || [];
+                } catch (e) {
+                    t.path = [];
+                }
                 
                 t.state = 'moving';
                 t.speed = 60;
@@ -317,24 +326,31 @@ function findPath(startNodeId: string, targetNodeId: string, map: RailMap): stri
 
             // 3. Standard Departure
             if (map.edges[outbound]) {
-                const outEdge = map.edges[outbound];
-                const target = map.nodes['n_out'] ? 'n_out' : 'n_R_out';
-                t.path = [outbound, ...findPath(outEdge.toNode, target, map)];
+                try {
+                    const outEdge = map.edges[outbound];
+                    const target = map.nodes['n_out'] ? 'n_out' : 'n_R_out';
+                    const foundPath = findPath(outEdge.toNode, target, map) || [];
+                    t.path = [outbound, ...foundPath];
+                } catch (e) {
+                     // If pathfinding fails, at least move to outbound
+                     t.path = [outbound]; 
+                }
                 
                 t.state = 'moving';
                 t.speed = 80; 
             } else {
                 // Manual Fallback
                  const target = map.nodes['n_out'] ? 'n_out' : 'n_R_out';
-                 // Try to path from end of current edge
                  const currEdgeObj = map.edges[current];
                  if (currEdgeObj) {
-                     t.path = findPath(currEdgeObj.toNode, target, map);
-                     // Set path to exit
-                     if (t.path && t.path.length > 0) {
-                         t.state = 'moving';
-                         t.speed = 60;
+                     try {
+                        t.path = findPath(currEdgeObj.toNode, target, map) || [];
+                     } catch(e) {
+                        t.path = [];
                      }
+                     // Always start moving if we found a path OR just to try physics auto-resolve
+                     t.state = 'moving';
+                     t.speed = 60;
                  }
             }
         }
