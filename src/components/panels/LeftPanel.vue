@@ -1,9 +1,16 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { TrainPhysics } from '../../core/RailGraph';
+import type { TrainPhysics, TrainModel } from '../../core/RailGraph';
+
+// Type for trains in the waiting queue
+interface QueuedTrain {
+  id: string;
+  schedule: { arriveTick: number };
+  model: TrainModel;
+}
 
 const props = defineProps<{
-  queue: any[]; // Waiting trains
+  queue: QueuedTrain[]; // Waiting trains
   trains: TrainPhysics[]; // Active trains on map
   onSelect: (id: string) => void;
   selectedId: string | null;
@@ -34,96 +41,131 @@ function tickToTime(tick: number): string {
   return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
 }
 
-// Get train status info
-function getTrainStatus(trainId: string) {
-  const activeTrain = props.trains?.find(t => t.id === trainId);
-  const queueTrain = props.queue?.find(q => q.id === trainId);
-  
-  if (!activeTrain && queueTrain) {
-    // Train in waiting queue
+interface TrainStatusInfo {
+  status: string;
+  statusColor: string;
+  location: string;
+  estimatedTime: string;
+  timeLabel: string;
+  punctuality: { text: string; color: string; minutes: number };
+}
+
+const DEFAULT_PUNCTUALITY = { text: '准点', color: '#f1c40f', minutes: 0 };
+
+function isEnteringEdge(edgeId: string): boolean {
+  return edgeId.includes('entry') ||
+         edgeId.includes('_L_t') ||
+         edgeId.includes('_R_t') ||
+         edgeId.includes('e_L_') ||
+         edgeId.includes('e_R_');
+}
+
+function isExitingEdge(edgeId: string): boolean {
+  return edgeId.includes('exit') || edgeId.includes('out');
+}
+
+function isPlatformEdge(edgeId: string): boolean {
+  return /t\d+/.test(edgeId);
+}
+
+function getStatusForQueuedTrain(queueTrain: QueuedTrain): TrainStatusInfo {
+  const arriveTick = queueTrain.schedule?.arriveTick ?? 0;
+  return {
+    status: '等待进站',
+    statusColor: '#f39c12',
+    location: '等待区',
+    estimatedTime: tickToTime(arriveTick),
+    timeLabel: '预计进站',
+    punctuality: getPunctuality(arriveTick)
+  };
+}
+
+function getStatusForActiveTrain(train: TrainPhysics): TrainStatusInfo {
+  const edgeId = train.currentEdgeId || '';
+  const isMoving = train.state === 'moving' || train.speed > 0;
+  const isAtPlatform = train.passengerState === 'BOARDING' ||
+                       (train.state === 'stopped' && isPlatformEdge(edgeId));
+
+  if (isAtPlatform) {
     return {
-      status: '等待进站',
-      statusColor: '#f39c12', // Orange
-      location: '等待区',
-      estimatedTime: tickToTime(queueTrain.schedule?.arriveTick || 0),
-      timeLabel: '预计进站',
-      punctuality: getPunctuality(queueTrain.schedule?.arriveTick || 0)
+      status: '停站中',
+      statusColor: '#e74c3c',
+      location: getTrainLocation(train),
+      estimatedTime: estimateDepartureTime(train),
+      timeLabel: '预计出站',
+      punctuality: getPunctuality(0)
     };
   }
-  
-  if (activeTrain) {
-    // Train is active on map
-    const currentEdge = activeTrain.currentEdgeId || '';
-    
-    // Check if at platform (boarding/stopped)
-    if (activeTrain.passengerState === 'BOARDING' || 
-        (activeTrain.state === 'stopped' && currentEdge.match(/t\d+/))) {
+
+  if (isMoving) {
+    if (isEnteringEdge(edgeId)) {
       return {
-        status: '停站中',
-        statusColor: '#e74c3c', // Red
-        location: getTrainLocation(activeTrain),
-        estimatedTime: estimateDepartureTime(activeTrain),
+        status: '正在进站',
+        statusColor: '#3498db',
+        location: getTrainLocation(train),
+        estimatedTime: estimateArrivalTime(),
+        timeLabel: '预计进站',
+        punctuality: getPunctuality(0)
+      };
+    }
+    if (isExitingEdge(edgeId)) {
+      return {
+        status: '正在出站',
+        statusColor: '#2ecc71',
+        location: getTrainLocation(train),
+        estimatedTime: estimateArrivalTime(),
         timeLabel: '预计出站',
-        punctuality: getPunctuality(0) // TODO: Calculate based on schedule
+        punctuality: getPunctuality(0)
       };
     }
-    
-    // Check if moving
-    if (activeTrain.state === 'moving' || activeTrain.speed > 0) {
-      // Determine direction based on current edge
-      if (currentEdge.includes('entry') || currentEdge.includes('_L_t') || currentEdge.includes('_R_t') || currentEdge.includes('e_L_') || currentEdge.includes('e_R_')) {
-        return {
-          status: '正在进站',
-          statusColor: '#3498db', // Blue
-          location: getTrainLocation(activeTrain),
-          estimatedTime: estimateArrivalTime(activeTrain),
-          timeLabel: '预计进站',
-          punctuality: getPunctuality(0) // TODO
-        };
-      } else if (currentEdge.includes('exit') || currentEdge.includes('out')) {
-        return {
-          status: '正在出站',
-          statusColor: '#2ecc71', // Green
-          location: getTrainLocation(activeTrain),
-          estimatedTime: estimateArrivalTime(activeTrain),
-          timeLabel: '预计出站',
-          punctuality: getPunctuality(0) // TODO
-        };
-      } else {
-        // Moving but unclear direction - default to entering
-        return {
-          status: '运行中',
-          statusColor: '#3498db', // Blue
-          location: getTrainLocation(activeTrain),
-          estimatedTime: estimateArrivalTime(activeTrain),
-          timeLabel: '预计到达',
-          punctuality: getPunctuality(0)
-        };
-      }
-    }
-    
-    // Stopped but not at platform
-    if (activeTrain.state === 'stopped') {
-      return {
-        status: '停车',
-        statusColor: '#e67e22', // Orange-red
-        location: getTrainLocation(activeTrain),
-        estimatedTime: tickToTime(props.currentTick || 0),
-        timeLabel: '当前时间',
-        punctuality: { text: '准点', color: '#f1c40f', minutes: 0 }
-      };
-    }
+    return {
+      status: '运行中',
+      statusColor: '#3498db',
+      location: getTrainLocation(train),
+      estimatedTime: estimateArrivalTime(),
+      timeLabel: '预计到达',
+      punctuality: getPunctuality(0)
+    };
   }
-  
-  // Fallback - should rarely happen
+
+  if (train.state === 'stopped') {
+    return {
+      status: '停车',
+      statusColor: '#e67e22',
+      location: getTrainLocation(train),
+      estimatedTime: tickToTime(props.currentTick || 0),
+      timeLabel: '当前时间',
+      punctuality: DEFAULT_PUNCTUALITY
+    };
+  }
+
+  return getDefaultStatus();
+}
+
+function getDefaultStatus(): TrainStatusInfo {
   return {
     status: '待命',
     statusColor: '#95a5a6',
     location: '-',
     estimatedTime: '--:--:--',
     timeLabel: '-',
-    punctuality: { text: '准点', color: '#f1c40f', minutes: 0 }
+    punctuality: DEFAULT_PUNCTUALITY
   };
+}
+
+function getTrainStatus(trainId: string): TrainStatusInfo {
+  const activeTrain = props.trains?.find(t => t.id === trainId);
+  const queueTrain = props.queue?.find(q => q.id === trainId);
+
+  if (!activeTrain && queueTrain) {
+    return getStatusForQueuedTrain(queueTrain);
+  }
+
+  if (activeTrain) {
+    return getStatusForActiveTrain(activeTrain);
+  }
+
+  return getDefaultStatus();
 }
 
 // Get train location description
@@ -139,9 +181,9 @@ function getTrainLocation(train: TrainPhysics): string {
 }
 
 // Estimate arrival time (simplified)
-function estimateArrivalTime(train: TrainPhysics): string {
+function estimateArrivalTime(): string {
   // Simplified: just show current time + 1 minute
-  const currentTick = props.currentTick || 0;
+  const currentTick = props.currentTick ?? 0;
   return tickToTime(currentTick + 3600); // +1 minute
 }
 
@@ -189,37 +231,17 @@ function getPunctuality(scheduledTick: number) {
 
 // Combine all trains (queue + active)
 const allTrains = computed(() => {
-  try {
-    const queueIds = (props.queue || []).map(q => q?.id).filter(Boolean);
-    // Filter out handed-over trains so they disappear from the list
-    const activeIds = (props.trains || [])
-        .filter(t => t?.id && !t.isHandedOver)
-        .map(t => t.id);
-    const trainIds = new Set([...queueIds, ...activeIds]);
-    
-    return Array.from(trainIds).map(id => {
-      try {
-        return {
-          id,
-          ...getTrainStatus(id)
-        };
-      } catch (error) {
-        console.error(`Error getting status for train ${id}:`, error);
-        return {
-          id,
-          status: '错误',
-          statusColor: '#95a5a6',
-          location: '-',
-          estimatedTime: '--:--:--',
-          timeLabel: '-',
-          punctuality: { text: '准点', color: '#f1c40f', minutes: 0 }
-        };
-      }
-    });
-  } catch (error) {
-    console.error('Error in allTrains computed:', error);
-    return [];
-  }
+  const queueIds = (props.queue || []).map(q => q?.id).filter(Boolean);
+  const activeIds = (props.trains || [])
+      .filter(t => t?.id && !t.isHandedOver)
+      .map(t => t.id);
+
+  const uniqueIds = new Set([...queueIds, ...activeIds]);
+
+  return Array.from(uniqueIds).map(id => ({
+    id,
+    ...getTrainStatus(id)
+  }));
 });
 </script>
 

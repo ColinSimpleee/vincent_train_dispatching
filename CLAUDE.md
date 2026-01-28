@@ -2,6 +2,16 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 代码规范
+
+**重要**：编写代码前请先阅读 [代码规范 SOP](./docs/CODING_STANDARDS.md)，包含：
+
+- TypeScript 类型规范（禁止 `any`，使用明确接口）
+- Vue 组件规范（Props/Emits 类型定义）
+- 函数设计原则（单一职责，早返回，参数精简）
+- 代码简化原则（避免嵌套三元，优先清晰）
+- 命名规范和代码审查清单
+
 ## 项目概述
 
 列车调度模拟器 - 基于 Vue 3 + TypeScript 的交互式铁路调度游戏，玩家通过实时物理模拟控制列车在车站内的运行。

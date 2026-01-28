@@ -5,7 +5,23 @@ import LeftPanel from './components/panels/LeftPanel.vue'
 import RightPanel from './components/panels/RightPanel.vue'
 import StartScreen from './components/StartScreen.vue'
 import { PhysicsEngine } from './core/PhysicsEngine'
-import type { RailMap, TrainPhysics } from './core/RailGraph'
+import type { RailMap, TrainPhysics, TrainModel } from './core/RailGraph'
+
+// Type for trains in the waiting queue
+interface QueuedTrain {
+  id: string
+  schedule: { arriveTick: number }
+  model: TrainModel
+}
+
+// Type for selected train display (union of active train or queued train info)
+interface SelectedTrainDisplay {
+  id: string
+  state: string
+  modelType: TrainModel
+  speed: number
+  currentEdgeId: string
+}
 import type { StationConfig } from './data/stations'
 
 // Virtual Game Time Configuration
@@ -37,7 +53,7 @@ const trains = reactive<TrainPhysics[]>([])
 // MVP Queue (Mock Data for Left Panel)
 // Correct calculation: 1 minute = 60 seconds × 60 ticks/second = 3600 ticks
 // Arrival times with 5-10 min intervals: 5 min, 12 min, 20 min
-const waitingQueue = reactive([
+const waitingQueue = reactive<QueuedTrain[]>([
   { id: 'G9528', schedule: { arriveTick: 18000 }, model: 'CR400AF' },   // 5 minutes
   { id: 'D1006', schedule: { arriveTick: 43200 }, model: 'CRH380A' },   // 12 minutes
   { id: 'G284',  schedule: { arriveTick: 72000 }, model: 'CR400BF' }    // 20 minutes
@@ -53,22 +69,21 @@ const FIXED_STEP = 1/60
 // ... (existing helper functions) ...
 
 // --- Computed ---
-const selectedTrain = computed(() => {
+const selectedTrain = computed((): TrainPhysics | SelectedTrainDisplay | null => {
   // Check active trains first
   const active = trains.find(t => t.id === selectedTrainId.value)
   if (active) return active
-  
-  // Check queue
+
+  // Check queue - return display info for queued trains
   const queued = waitingQueue.find(q => q.id === selectedTrainId.value)
   if (queued) {
-      // Mock a TrainPhysics object for display
-      return { 
-          id: queued.id, 
+      return {
+          id: queued.id,
           state: 'WAITING',
-          modelType: queued.model, 
-          speed: 0, 
-          currentEdgeId: 'QUEUE' 
-      } as any
+          modelType: queued.model,
+          speed: 0,
+          currentEdgeId: 'QUEUE'
+      }
   }
   return null
 })
@@ -96,6 +111,48 @@ const gameTime = computed(() => {
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`
 })
+
+// --- Train Exit Processing ---
+const CAR_PITCH = 30;
+
+function isMainExitEdge(edgeId: string): boolean {
+    return edgeId === 'e_exit' || edgeId === 'e_out' || edgeId.startsWith('e_exit');
+}
+
+function getTrainHalfLength(train: TrainPhysics): number {
+    const numCars = train.isCoupled ? 16 : 8;
+    return (numCars * CAR_PITCH) / 2;
+}
+
+function processExitingTrains(): void {
+    const HANDOVER_BASE = 400;
+    const REMOVAL_BUFFER = 50;
+
+    for (let i = trains.length - 1; i >= 0; i--) {
+        const train = trains[i];
+        if (!train) continue;
+
+        const edge = map.edges[train.currentEdgeId];
+        if (!edge || !isMainExitEdge(train.currentEdgeId)) continue;
+
+        // Check control handover threshold
+        const handoverThreshold = HANDOVER_BASE + getTrainHalfLength(train);
+        if (train.position >= handoverThreshold && !train.isHandedOver) {
+            train.isHandedOver = true;
+        }
+
+        // Check removal threshold
+        const removalThreshold = edge.length - REMOVAL_BUFFER;
+        if (train.position >= removalThreshold) {
+            trains.splice(i, 1);
+
+            const queueIndex = waitingQueue.findIndex(q => q.id === train.id);
+            if (queueIndex !== -1) {
+                waitingQueue.splice(queueIndex, 1);
+            }
+        }
+    }
+}
 
 // --- Loop ---
 function loop(timestamp: number) {
@@ -127,7 +184,7 @@ function loop(timestamp: number) {
             waitingQueue.push({
                 id: id,
                 schedule: { arriveTick: tick.value + advanceTime },
-                model: ['CR400AF', 'CR400BF', 'CRH380A'][Math.floor(Math.random()*3)] as any 
+                model: (['CR400AF', 'CR400BF', 'CRH380A'] as const)[Math.floor(Math.random()*3)] ?? 'CR400AF' 
             });
         }
       } catch (e) {
@@ -136,58 +193,8 @@ function loop(timestamp: number) {
         return 
       }
       
-      // Auto-remove trains that have completely left the screen
-      // Check if train is on exit edge and has moved far enough
-      for (let i = trains.length - 1; i >= 0; i--) {
-        const train = trains[i];
-        const currentEdge = map.edges[train.currentEdgeId];
-        
-        if (!currentEdge) continue;
-        
-        // Check if train is on any exit-related edge
-        // CRITICAL FIX: Do NOT use .includes('out') broadly as it matches t1_out, t2_out etc.
-        const isExitEdge = train.currentEdgeId === 'e_exit' || 
-                          train.currentEdgeId === 'e_out' || 
-                          train.currentEdgeId.startsWith('e_exit');
-        
-        if (isExitEdge) {
-          // 1. Check Control Handover (Remove from UI Panel)
-          // Threshold: 400 units from start of e_exit (x = 1700 + 400 = 2100)
-          // User wants "Middle of train passes red circle"
-          const numCars = train.isCoupled ? 16 : 8;
-          const halfLength = (numCars * 30) / 2; 
-          const HANDOVER_THRESHOLD = 400 + halfLength;
-          
-          if (train.position >= HANDOVER_THRESHOLD && !train.isHandedOver) {
-             train.isHandedOver = true;
-             console.log(`Train ${train.id} Handed Over (Exiting Control Area)`);
-          }
-
-          // 2. Physical Removal (Remove from Screen/Memory)
-          // When train reaches the end of exit edge, it should be removed
-          const removalThreshold = currentEdge.length - 50;
-          
-          // Debug log (can be removed later)
-          if (train.position > currentEdge.length - 100) {
-            console.log(`Train ${train.id} on ${train.currentEdgeId}: position=${train.position.toFixed(0)}, edgeLength=${currentEdge.length.toFixed(0)}, threshold=${removalThreshold.toFixed(0)}`);
-          }
-          
-          // If train position has reached near the end of exit edge, remove it
-          if (train.position >= removalThreshold) {
-            console.log(`✅ Removing train ${train.id} - reached end of exit edge`);
-            
-            // Remove from trains array
-            trains.splice(i, 1);
-            
-            // Also remove from waiting queue if present
-            const queueIndex = waitingQueue.findIndex(q => q.id === train.id);
-            if (queueIndex !== -1) {
-              console.log(`  Also removed from queue at index ${queueIndex}`);
-              waitingQueue.splice(queueIndex, 1);
-            }
-          }
-        }
-      }
+      // Process trains on exit edges
+      processExitingTrains();
       
       accumulator -= FIXED_STEP
   }
@@ -255,23 +262,16 @@ function handleTrainAction(payload: { id: string, action: string }) {
     }
 }
 
-function handleAction(action: string) {
-    if (!selectedTrainId.value) return;
-
-    if (action === 'ADMIT') {
-        spawnTrainIntoMap(selectedTrainId.value)
 // --- Pathfinding Helper (BFS) ---
-function findPath(startNodeId: string, targetNodeId: string, map: RailMap): string[] {
+function findPath(startNodeId: string, targetNodeId: string, railMap: RailMap): string[] {
     const queue: { node: string, path: string[] }[] = [{ node: startNodeId, path: [] }];
-    const visited = new Set<string>();
-    visited.add(startNodeId);
+    const visited = new Set<string>([startNodeId]);
 
     while (queue.length > 0) {
         const { node, path } = queue.shift()!;
         if (node === targetNodeId) return path;
 
-        // Find outgoing edges
-        const outgoing = Object.values(map.edges).filter(e => e.fromNode === node);
+        const outgoing = Object.values(railMap.edges).filter(e => e.fromNode === node);
         for (const edge of outgoing) {
             if (!visited.has(edge.toNode)) {
                 visited.add(edge.toNode);
@@ -279,89 +279,94 @@ function findPath(startNodeId: string, targetNodeId: string, map: RailMap): stri
             }
         }
     }
-    return []; // No path found
+    return [];
 }
 
-// ... existing code ...
+function getExitNodeId(): string {
+    return map.nodes['n_out'] ? 'n_out' : 'n_R_out';
+}
 
-    } else if (action === 'DEPART') {
-        const t = trains.find(train => train.id === selectedTrainId.value)
-        if (t) {
-            const current = t.currentEdgeId;
-            const outbound = current + '_out'; 
-            const reverse = current + '_rev';
+function safeFindPath(startNodeId: string, targetNodeId: string): string[] {
+    try {
+        return findPath(startNodeId, targetNodeId, map);
+    } catch (e) {
+        console.error("Pathfinding error:", e);
+        return [];
+    }
+}
 
-            // 1. Resume if already exiting
-            t.passengerState = undefined; // Clear IMMEDIATELY to prevent state lock
-            
-            if (current.endsWith('_out') || current === 'e_exit' || current === 'e_out') {
-                 try {
-                     const edge = map.edges[current];
-                     t.path = findPath(edge.toNode, 'n_out', map) || [];
-                 } catch (e) {
-                     console.error("Pathfinding error:", e);
-                     t.path = [];
-                 }
-                 
-                 t.state = 'moving';
-                 t.speed = 80;
-                 return;
-            }
+function isExitingEdge(edgeId: string): boolean {
+    return edgeId.endsWith('_out') || edgeId === 'e_exit' || edgeId === 'e_out';
+}
 
-            // 2. Terminal Turnaround
-            if (map.edges[reverse]) {
-                const revEdge = map.edges[reverse];
-                t.currentEdgeId = reverse;
-                t.position = 0; 
-                
-                try {
-                    const startNode = revEdge.toNode;
-                    const target = map.nodes['n_out'] ? 'n_out' : 'n_R_out';
-                    t.path = findPath(startNode, target, map) || [];
-                } catch (e) {
-                    t.path = [];
-                }
-                
-                t.state = 'moving';
-                t.speed = 60;
-                return;
-            }
+function startTrainMoving(train: TrainPhysics, speed: number): void {
+    train.state = 'moving';
+    train.speed = speed;
+}
 
-            // 3. Standard Departure
-            if (map.edges[outbound]) {
-                try {
-                    const outEdge = map.edges[outbound];
-                    const target = map.nodes['n_out'] ? 'n_out' : 'n_R_out';
-                    const foundPath = findPath(outEdge.toNode, target, map) || [];
-                    t.path = [outbound, ...foundPath];
-                } catch (e) {
-                     // If pathfinding fails, at least move to outbound
-                     t.path = [outbound]; 
-                }
-                
-                t.state = 'moving';
-                t.speed = 80; 
-            } else {
-                // Manual Fallback
-                 const target = map.nodes['n_out'] ? 'n_out' : 'n_R_out';
-                 const currEdgeObj = map.edges[current];
-                 if (currEdgeObj) {
-                     try {
-                        t.path = findPath(currEdgeObj.toNode, target, map) || [];
-                     } catch(e) {
-                        t.path = [];
-                     }
-                     // Always start moving if we found a path OR just to try physics auto-resolve
-                     t.state = 'moving';
-                     t.speed = 60;
-                 }
-            }
+function handleDepartAction(train: TrainPhysics): void {
+    const current = train.currentEdgeId;
+    const outbound = current + '_out';
+    const reverse = current + '_rev';
+
+    train.passengerState = undefined;
+
+    // Case 1: Already on exit track
+    if (isExitingEdge(current)) {
+        const edge = map.edges[current];
+        train.path = edge ? safeFindPath(edge.toNode, 'n_out') : [];
+        startTrainMoving(train, 80);
+        return;
+    }
+
+    // Case 2: Terminal turnaround
+    if (map.edges[reverse]) {
+        const revEdge = map.edges[reverse];
+        train.currentEdgeId = reverse;
+        train.position = 0;
+        train.path = safeFindPath(revEdge.toNode, getExitNodeId());
+        startTrainMoving(train, 60);
+        return;
+    }
+
+    // Case 3: Standard departure via outbound edge
+    if (map.edges[outbound]) {
+        const outEdge = map.edges[outbound];
+        const pathAfter = safeFindPath(outEdge.toNode, getExitNodeId());
+        train.path = pathAfter.length > 0 ? [outbound, ...pathAfter] : [outbound];
+        startTrainMoving(train, 80);
+        return;
+    }
+
+    // Case 4: Fallback - find path from current position
+    const currEdge = map.edges[current];
+    if (currEdge) {
+        train.path = safeFindPath(currEdge.toNode, getExitNodeId());
+        startTrainMoving(train, 60);
+    }
+}
+
+function handleAction(action: string) {
+    if (!selectedTrainId.value) return;
+
+    switch (action) {
+        case 'ADMIT':
+            spawnTrainIntoMap(selectedTrainId.value);
+            break;
+
+        case 'DEPART': {
+            const train = trains.find(t => t.id === selectedTrainId.value);
+            if (train) handleDepartAction(train);
+            break;
         }
-    } else if (action === 'STOP') {
-        const t = trains.find(train => train.id === selectedTrainId.value)
-        if (t) {
-            t.speed = 0;
-            t.state = 'stopped';
+
+        case 'STOP': {
+            const train = trains.find(t => t.id === selectedTrainId.value);
+            if (train) {
+                train.speed = 0;
+                train.state = 'stopped';
+            }
+            break;
         }
     }
 }
@@ -411,18 +416,19 @@ function spawnTrainIntoMap(id: string) {
         direction: 1, // Default forward movement
         path: path,
         visitedPath: [], // Initialize empty visited path for tail rendering
-        modelType: (waitingQueue[qIndex]?.model as any) || 'CR400AF',
+        modelType: waitingQueue[qIndex]?.model ?? 'CR400AF',
         isCoupled: Math.random() < 0.2
     }
 
-    if (!map.edges[currentEdgeId]) {
+    const spawnEdge = map.edges[currentEdgeId];
+    if (!spawnEdge) {
          console.error("Invalid spawn edge", currentEdgeId);
          return;
     }
 
     // SPAWN SAFETY CHECK (Ghost Mode)
     // Prevent spawning if another train is physically blocking the entry point (0-300px).
-    const isBlocked = trains.some(t => 
+    const isBlocked = trains.some(t =>
         t.currentEdgeId === currentEdgeId && t.position < 300
     );
 
@@ -430,11 +436,9 @@ function spawnTrainIntoMap(id: string) {
         alert("入口拥堵！前车尚未驶离安全区 (Wait for clear entry)");
         return;
     }
-    
-    // if (map.edges[currentEdgeId].occupiedBy) { ... } // DISABLED old logic
 
-    map.edges[currentEdgeId].occupiedBy = newTrain.id
-    trains.push(newTrain)
+    spawnEdge.occupiedBy = newTrain.id;
+    trains.push(newTrain);
     
     if (qIndex !== -1) waitingQueue.splice(qIndex, 1) 
 }

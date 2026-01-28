@@ -1,9 +1,18 @@
 <script setup lang="ts">
-import type { TrainPhysics } from '../../core/RailGraph';
+import type { TrainPhysics, TrainModel } from '../../core/RailGraph';
+
+// Partial train info for display (used for queued trains)
+interface TrainDisplayInfo {
+  id: string;
+  state: string;
+  modelType: TrainModel;
+  speed: number;
+  currentEdgeId: string;
+}
 
 defineProps<{
   gameTime: string; // Virtual game time in HH:MM:SS format
-  selectedTrain: TrainPhysics | null; // Active or Queue item
+  selectedTrain: TrainPhysics | TrainDisplayInfo | null; // Active or Queue item
   onAction: (action: string) => void;
   gameSpeed: number;
   onSpeedChange: (s: number) => void;

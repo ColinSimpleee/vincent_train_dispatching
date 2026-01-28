@@ -1,4 +1,4 @@
-import type { TrainPhysics, RailMap } from './RailGraph.ts';
+import type { TrainPhysics, RailMap, RailNode } from './RailGraph.ts';
 
 /**
  * PhysicsEngine - 列车物理模拟引擎
@@ -40,10 +40,10 @@ export class PhysicsEngine {
     }
 
     // Phase 1.5: Physical Collision Check
-    PhysicsEngine.detectPhysicalCollisions(trains, map);
+    PhysicsEngine.detectPhysicalCollisions(trains);
 
     // Phase 2: Resolve Conflicts
-    PhysicsEngine.resolveConflicts(trains, map);
+    PhysicsEngine.resolveConflicts(trains);
 
     // Phase 3: Commit Updates
     PhysicsEngine.commitUpdates(trains, map);
@@ -53,8 +53,8 @@ export class PhysicsEngine {
     if (train.state !== 'moving' || train.speed === 0) return;
 
     const dir = train.direction || 1; // Default forward for safety
-    let distToMove = train.speed * dt;
-    let tPos = train.position + (distToMove * dir); // Direction affects position change
+    const distToMove = train.speed * dt;
+    const tPos = train.position + (distToMove * dir); // Direction affects position change
     const currentEdge = map.edges[train.currentEdgeId];
     
     if (!currentEdge) {
@@ -109,11 +109,11 @@ export class PhysicsEngine {
       // --- RULES ENFORCEMENT ---
       
       // Rule 1: Signal Compliance (Stop at Red)
-      if (nextNode && nextNode.signalState === 'red') {
+      if (nextNode.signalState === 'red') {
              train.position = dir === 1 ? currentEdge.length : 0;
              train.speed = 0;
              train.state = 'stopped';
-             return; 
+             return;
       }
 
       // Rule 2: Switch Safety / Wrong Path
@@ -144,12 +144,12 @@ export class PhysicsEngine {
     }
   }
 
-  private static handlePassengerLogic(train: TrainPhysics) {
-      if (train.passengerState === 'BOARDING') {
-          train.boardingTimer = (train.boardingTimer || 0) - 1;
-          if (train.boardingTimer <= 0) {
-              train.passengerState = 'READY';
-          }
+  private static handlePassengerLogic(train: TrainPhysics): void {
+      if (train.passengerState !== 'BOARDING') return;
+
+      train.boardingTimer = (train.boardingTimer || 0) - 1;
+      if (train.boardingTimer <= 0) {
+          train.passengerState = 'READY';
       }
   }
 
@@ -182,7 +182,7 @@ export class PhysicsEngine {
       if (!nextEdgeId) return; // Dead end
 
       // 1. Check Signal
-      if (nextNode && nextNode.signalState === 'red') return; // Still Red
+      if (nextNode.signalState === 'red') return; // Still Red
 
       // 2. Check Occupancy -> DISABLED (Ghost Trains)
       // const nextEdge = map.edges[nextEdgeId];
@@ -201,7 +201,7 @@ export class PhysicsEngine {
    * @param map - Rail map
    * @param incomingEdgeId - The edge the train is coming from (to determine flow direction)
    */
-  private static resolveNextEdge(node: any, map: RailMap, incomingEdgeId: string): string | undefined {
+  private static resolveNextEdge(node: RailNode | undefined, map: RailMap, incomingEdgeId: string): string | undefined {
       if (!node) return undefined;
       
       const incomingEdge = map.edges[incomingEdgeId];
@@ -211,7 +211,7 @@ export class PhysicsEngine {
       const arrivedAtFromNode = incomingEdge.fromNode === node.id;
       
       // Get candidate edges based on flow consistency
-      let candidates = Object.values(map.edges).filter(e => {
+      const candidates = Object.values(map.edges).filter(e => {
           if (e.id === incomingEdgeId) return false; // Don't reverse
           
           if (arrivedAtFromNode) {
@@ -224,7 +224,7 @@ export class PhysicsEngine {
       }).sort((a, b) => a.id.localeCompare(b.id));
       
       if (candidates.length === 0) return undefined;
-      if (candidates.length === 1) return candidates[0].id;
+      if (candidates.length === 1) return candidates[0]?.id;
       
       // Multiple candidates - check switch state
       if (node.type === 'switch') {
@@ -235,59 +235,42 @@ export class PhysicsEngine {
       return candidates[0]?.id;
   }
 
+  private static getTrainLength(train: TrainPhysics): number {
+      const carCount = train.isCoupled ? 16 : 8;
+      return carCount * CAR_PITCH;
+  }
+
+  private static checkSegmentsOverlap(head1: number, tail1: number, head2: number, tail2: number): boolean {
+      const completelyBefore = head1 < tail2;
+      const completelyAfter = tail1 > head2;
+      return !(completelyBefore || completelyAfter);
+  }
+
   // --- Phase 1.5 ---
-  private static detectPhysicalCollisions(trains: TrainPhysics[], map: RailMap) {
-      // ACTUAL PENETRATION DETECTION (穿模检测)
-      // Check if ANY PART of train A overlaps with ANY PART of train B
-      
-      // Train physical dimensions (using global constant)
-      
+  private static detectPhysicalCollisions(trains: TrainPhysics[]): void {
       for (let i = 0; i < trains.length; i++) {
           for (let j = i + 1; j < trains.length; j++) {
               const t1 = trains[i];
               const t2 = trains[j];
-              
-              // Safety check: skip if trains are undefined
+
               if (!t1 || !t2) continue;
-              
-              // Skip collision check if either train has passed the control boundary (Handed Over)
               if (t1.isHandedOver || t2.isHandedOver) continue;
+              if (t1.currentEdgeId !== t2.currentEdgeId) continue;
 
-              // Calculate train lengths (head to tail)
-              // Default to 8 cars if isCoupled is undefined
-              const t1Length = (t1.isCoupled ?? false ? 16 : 8) * CAR_PITCH;
-              const t2Length = (t2.isCoupled ?? false ? 16 : 8) * CAR_PITCH;
-              
-              // Train positions: position is the HEAD (front), tail is behind
               const t1Head = t1.position;
-              const t1Tail = t1.position - t1Length;
-              
+              const t1Tail = t1.position - PhysicsEngine.getTrainLength(t1);
               const t2Head = t2.position;
-              const t2Tail = t2.position - t2Length;
+              const t2Tail = t2.position - PhysicsEngine.getTrainLength(t2);
 
-              // 1. Same Edge Collision - Check if train segments overlap
-              if (t1.currentEdgeId === t2.currentEdgeId) {
-                  // Two segments overlap if:
-                  // - t1's head is past t2's tail AND t1's tail is before t2's head
-                  // In other words: NOT (t1 completely before t2 OR t1 completely after t2)
-                  const t1CompletelyBefore = t1Head < t2Tail;
-                  const t1CompletelyAfter = t1Tail > t2Head;
-                  
-                  const overlapping = !(t1CompletelyBefore || t1CompletelyAfter);
-                  
-                  if (overlapping) {
-                      PhysicsEngine.triggerCollision(t1.id, t2.id);
-                  }
+              if (PhysicsEngine.checkSegmentsOverlap(t1Head, t1Tail, t2Head, t2Tail)) {
+                  PhysicsEngine.triggerCollision(t1.id, t2.id);
               }
-              
-              // TODO: Cross-edge collision (when tail is on previous edge)
-              // This would require checking if t1's tail (on previous edge) overlaps with t2
           }
       }
   }
 
   // --- Phase 2 ---
-  private static resolveConflicts(trains: TrainPhysics[], map: RailMap): void {
+  private static resolveConflicts(trains: TrainPhysics[]): void {
     const claims = new Map<string, string>(); // EdgeId -> TrainId
 
     for (const train of trains) {
@@ -314,8 +297,9 @@ export class PhysicsEngine {
     for (const train of trains) {
       if (train.nextMoveIntent) {
         // Release Old
-        if (map.edges[train.currentEdgeId].occupiedBy === train.id) {
-            map.edges[train.currentEdgeId].occupiedBy = null;
+        const oldEdge = map.edges[train.currentEdgeId];
+        if (oldEdge && oldEdge.occupiedBy === train.id) {
+            oldEdge.occupiedBy = null;
         }
 
         // History (For snake rendering)

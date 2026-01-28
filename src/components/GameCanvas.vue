@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { RailMap, TrainPhysics } from '../core/RailGraph';
+import type { RailMap, RailEdge, RailNode, TrainPhysics } from '../core/RailGraph';
+
+// Point type for bezier calculations
+interface Point {
+  x: number;
+  y: number;
+}
 
 const props = defineProps<{
   map: RailMap;
@@ -14,22 +20,12 @@ const emit = defineEmits<{
 // Safe computed properties for map data
 const safeEdges = computed(() => {
   if (!props.map?.edges) return [];
-  try {
-    return Object.values(props.map.edges).filter(e => e != null);
-  } catch (error) {
-    console.error('Error accessing map.edges:', error);
-    return [];
-  }
+  return Object.values(props.map.edges).filter(Boolean);
 });
 
 const safeNodes = computed(() => {
   if (!props.map?.nodes) return [];
-  try {
-    return Object.values(props.map.nodes).filter(n => n != null);
-  } catch (error) {
-    console.error('Error accessing map.nodes:', error);
-    return [];
-  }
+  return Object.values(props.map.nodes).filter(Boolean);
 });
 
 // Define car pitch (car length + gap)
@@ -40,26 +36,8 @@ function getNode(id: string) {
   return props.map?.nodes?.[id] || { x: 0, y: 0 };
 }
 
-// Calculate Train Position (SVG Transform)
-function getTrainTransform(train: TrainPhysics) {
-  const edge = props.map.edges[train.currentEdgeId];
-  if (!edge) return 'scale(0)'; // Hide if invalid
-
-  const start = getNode(edge.fromNode);
-  const end = getNode(edge.toNode);
-
-  const t = Math.max(0, Math.min(1, train.position / edge.length));
-  
-  const x = start.x + (end.x - start.x) * t;
-  const y = start.y + (end.y - start.y) * t;
-  
-  const angle = Math.atan2(end.y - start.y, end.x - start.x) * (180 / Math.PI);
-
-  return `translate(${x}, ${y}) rotate(${angle})`;
-}
-
 // --- Math Helpers ---
-function getEdgePath(edge: any) {
+function getEdgePath(edge: RailEdge): string {
     const s = getNode(edge.fromNode);
     const e = getNode(edge.toNode);
     if (edge.control1 && edge.control2) {
@@ -68,20 +46,20 @@ function getEdgePath(edge: any) {
     return `M ${s.x} ${s.y} L ${e.x} ${e.y}`;
 }
 
-function cubicBezier(t: number, p0: any, p1: any, p2: any, p3: any) {
+function cubicBezier(t: number, p0: Point, p1: Point, p2: Point, p3: Point): Point {
     const u = 1 - t;
     const tt = t * t;
     const uu = u * u;
     const uuu = uu * u;
     const ttt = tt * t;
 
-    let p = { x: 0, y: 0 };
-    p.x = uuu * p0.x + 3 * uu * t * p1.x + 3 * u * tt * p2.x + ttt * p3.x;
-    p.y = uuu * p0.y + 3 * uu * t * p1.y + 3 * u * tt * p2.y + ttt * p3.y;
-    return p;
+    return {
+        x: uuu * p0.x + 3 * uu * t * p1.x + 3 * u * tt * p2.x + ttt * p3.x,
+        y: uuu * p0.y + 3 * uu * t * p1.y + 3 * u * tt * p2.y + ttt * p3.y
+    };
 }
 
-function cubicBezierAngle(t: number, p0: any, p1: any, p2: any, p3: any) {
+function cubicBezierAngle(t: number, p0: Point, p1: Point, p2: Point, p3: Point): number {
     const u = 1 - t;
     const dx = 3 * u * u * (p1.x - p0.x) + 6 * u * t * (p2.x - p1.x) + 3 * t * t * (p3.x - p2.x);
     const dy = 3 * u * u * (p1.y - p0.y) + 6 * u * t * (p2.y - p1.y) + 3 * t * t * (p3.y - p2.y);
@@ -90,48 +68,35 @@ function cubicBezierAngle(t: number, p0: any, p1: any, p2: any, p3: any) {
 
 // --- Switch Logic ---
 function getOutgoingEdges(nodeId: string) {
-    // Return edges where this node is the SOURCE
-    // Sort by ID to be deterministic
     if (!props.map?.edges) return [];
-    
-    try {
-        return Object.values(props.map.edges)
-            .filter(e => e?.fromNode === nodeId)
-            .sort((a, b) => (a?.id || '').localeCompare(b?.id || ''));
-    } catch (error) {
-        console.error('Error in getOutgoingEdges:', error);
-        return [];
-    }
+    return Object.values(props.map.edges)
+        .filter(e => e?.fromNode === nodeId)
+        .sort((a, b) => (a?.id || '').localeCompare(b?.id || ''));
 }
 
-function getActiveEdge(node: any) {
+function getActiveEdge(node: RailNode | undefined): RailEdge | null {
     if (!node || node.type !== 'switch') return null;
-    
+
     const edges = getOutgoingEdges(node.id);
-    if (!edges || !Array.isArray(edges) || edges.length === 0) return null;
-    
-    const index = node.switchState || 0;
-    return edges[index % edges.length];
+    if (edges.length === 0) return null;
+
+    const index = node.switchState ?? 0;
+    return edges[index % edges.length] ?? null;
 }
 
-function toggleSwitch(node: any) {
+function toggleSwitch(node: RailNode | undefined): void {
     if (!node) return;
-    
+
     const edges = getOutgoingEdges(node.id);
-    if (!edges || edges.length === 0) return;
-    
-    // Increment State
-    const current = node.switchState || 0;
+    if (edges.length === 0) return;
+
+    const current = node.switchState ?? 0;
     node.switchState = (current + 1) % edges.length;
 }
 
-function toggleSignal(node: any) {
+function toggleSignal(node: RailNode | undefined): void {
     if (!node) return;
-    
-    // Default is 'green' (undefined/null allowed pass)
-    // Toggle: red -> green, green -> red, undefined -> red
-    const current = node.signalState || 'green';
-    node.signalState = (current === 'green') ? 'red' : 'green';
+    node.signalState = node.signalState === 'red' ? 'green' : 'red';
 }
 
 function getCarTransform(train: TrainPhysics, carIndex: number) {
@@ -144,10 +109,11 @@ function getCarTransform(train: TrainPhysics, carIndex: number) {
      let hIndex = 0;
      while (dist < 0 && hIndex < history.length) {
         const prevEdgeId = history[hIndex];
+        if (!prevEdgeId) break;
         const prevEdge = props.map.edges[prevEdgeId];
-        if (!prevEdge) break; 
+        if (!prevEdge) break;
         edgeId = prevEdgeId;
-        dist += prevEdge.length; 
+        dist += prevEdge.length;
         hIndex++;
      }
   }
@@ -364,15 +330,17 @@ function getCarTransform(train: TrainPhysics, carIndex: number) {
       <!-- Layer 3.5: Switch Highlights (Active Path) -->
       <g class="switch-highlights">
          <template v-for="node in map.nodes" :key="node.id">
-            <path 
-               v-if="node.type === 'switch' && getActiveEdge(node)"
-               :d="getEdgePath(getActiveEdge(node))"
-               stroke="#2ecc71"
-               stroke-width="6"
-               fill="none"
-               stroke-opacity="0.6"
-               style="pointer-events: none;"
-            />
+            <template v-if="node.type === 'switch'">
+              <path
+                 v-if="getActiveEdge(node)"
+                 :d="getEdgePath(getActiveEdge(node)!)"
+                 stroke="#2ecc71"
+                 stroke-width="6"
+                 fill="none"
+                 stroke-opacity="0.6"
+                 style="pointer-events: none;"
+              />
+            </template>
          </template>
       </g>
       <g class="trains-layer">
