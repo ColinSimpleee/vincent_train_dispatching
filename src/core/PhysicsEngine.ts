@@ -52,23 +52,30 @@ export class PhysicsEngine {
   private static computeIntent(train: TrainPhysics, map: RailMap, dt: number, currentTick: number): void {
     if (train.state !== 'moving' || train.speed === 0) return;
 
+    const dir = train.direction || 1; // Default forward for safety
     let distToMove = train.speed * dt;
-    let tPos = train.position + distToMove;
+    let tPos = train.position + (distToMove * dir); // Direction affects position change
     const currentEdge = map.edges[train.currentEdgeId];
+    
+    if (!currentEdge) {
+      console.error(`Train ${train.id} on invalid edge ${train.currentEdgeId}`);
+      train.state = 'stopped';
+      return;
+    }
 
-    // Check Boundary
-    if (tPos >= currentEdge.length) {
-      const overflow = tPos - currentEdge.length;
+    // Check Boundary (direction-aware)
+    const isArriving = (dir === 1 && tPos >= currentEdge.length) || (dir === -1 && tPos <= 0);
+
+    if (isArriving) {
+      const overflow = dir === 1 ? (tPos - currentEdge.length) : Math.abs(tPos);
 
       // Special Rule: Platform Stop (Auto-Service)
-      // If we hit the end of a platform, and we haven't serviced it yet:
       if (currentEdge.isPlatform && train.lastServicedEdgeId !== train.currentEdgeId) {
-          train.position = currentEdge.length;
+          train.position = dir === 1 ? currentEdge.length : 0;
           train.speed = 0;
           train.state = 'stopped';
           
           train.passengerState = 'BOARDING';
-          // Record Schedule Info
           train.arrivalTick = currentTick;
           const dwell = DWELL_TIME_MIN + Math.floor(Math.random() * (DWELL_TIME_MAX - DWELL_TIME_MIN));
           train.boardingTimer = dwell;
@@ -81,21 +88,29 @@ export class PhysicsEngine {
       
       // Stop Condition: No Path left (Arrived)
       if (!train.path || train.path.length === 0) {
-          train.position = currentEdge.length;
+          train.position = dir === 1 ? currentEdge.length : 0;
           train.speed = 0;
           train.state = 'stopped';
           return;
       }
 
-      // 1. Resolve Next Edge based on Topology & Switch State
-      const nextNode = map.nodes[currentEdge.toNode];
-      const nextEdgeId = PhysicsEngine.resolveNextEdge(nextNode, map);
+      // 1. Resolve Next Edge based on direction
+      const nextNodeId = dir === 1 ? currentEdge.toNode : currentEdge.fromNode;
+      const nextNode = map.nodes[nextNodeId];
+      
+      if (!nextNode) {
+        console.error(`Train ${train.id} reached invalid node ${nextNodeId}`);
+        train.state = 'stopped';
+        return;
+      }
+      
+      const nextEdgeId = PhysicsEngine.resolveNextEdge(nextNode, map, train.currentEdgeId);
       
       // --- RULES ENFORCEMENT ---
       
       // Rule 1: Signal Compliance (Stop at Red)
       if (nextNode && nextNode.signalState === 'red') {
-             train.position = currentEdge.length;
+             train.position = dir === 1 ? currentEdge.length : 0;
              train.speed = 0;
              train.state = 'stopped';
              return; 
@@ -109,6 +124,13 @@ export class PhysicsEngine {
       // if (nextEdge.occupiedBy !== null) { ... }
 
       // ---------------------
+      
+      if (!nextEdgeId) {
+        train.position = dir === 1 ? currentEdge.length : 0;
+        train.speed = 0;
+        train.state = 'stopped';
+        return;
+      }
 
       // Register Intent (Path is Clear)
       train.nextMoveIntent = {
@@ -133,17 +155,29 @@ export class PhysicsEngine {
 
   private static tryResume(train: TrainPhysics, map: RailMap): void {
       const currentEdge = map.edges[train.currentEdgeId];
+      const dir = train.direction || 1;
+      
+      if (!currentEdge) {
+        console.error(`Train ${train.id} on invalid edge ${train.currentEdgeId}`);
+        return;
+      }
 
       // Block Resume if strictly held by Passenger State
       if (train.passengerState === 'BOARDING' || train.passengerState === 'READY') return;
       
-      // Only resume if we are waiting at the end of the track (Signal Waiting)
-      // Epsilon safe
-      if (train.position < currentEdge.length - 0.1) return;
+      // Check if at boundary (direction-aware)
+      const distToBound = dir === 1 
+        ? (currentEdge.length - train.position) 
+        : train.position;
+      if (distToBound > 0.1) return; // Not at boundary
 
       // Check Path Ahead
-      const nextNode = map.nodes[currentEdge.toNode];
-      const nextEdgeId = PhysicsEngine.resolveNextEdge(nextNode, map);
+      const nextNodeId = dir === 1 ? currentEdge.toNode : currentEdge.fromNode;
+      const nextNode = map.nodes[nextNodeId];
+      
+      if (!nextNode) return;
+      
+      const nextEdgeId = PhysicsEngine.resolveNextEdge(nextNode, map, train.currentEdgeId);
       
       if (!nextEdgeId) return; // Dead end
 
@@ -159,31 +193,46 @@ export class PhysicsEngine {
       train.speed = RESUME_SPEED;
   }
   
-  private static resolveNextEdge(node: any, map: RailMap): string | undefined {
+  /**
+   * Resolve next edge based on topology, switch state, and incoming direction.
+   * Implements "Flow Consistency": trains maintain their direction of travel through nodes.
+   * 
+   * @param node - The node the train is arriving at
+   * @param map - Rail map
+   * @param incomingEdgeId - The edge the train is coming from (to determine flow direction)
+   */
+  private static resolveNextEdge(node: any, map: RailMap, incomingEdgeId: string): string | undefined {
       if (!node) return undefined;
       
-      // Find outgoing edges, sorted deterministically
-      const edges = Object.values(map.edges)
-        .filter(e => e.fromNode === node.id)
-        .sort((a, b) => a.id.localeCompare(b.id));
-
-      if (edges.length === 0) return undefined;
-
-      if (node.type === 'switch') {
-          // Facing Point: One input, Multiple outputs.
-          // State determines which output.
-          const index = node.switchState || 0;
-          return edges[index % edges.length]?.id;
-      } else {
-          // Connector / Endpoint / Buffer Stop
-          // Buffer Stop has NO outgoing edges (filtered by length=0 usually, or just logic).
-          if (node.type === 'buffer_stop') return undefined; 
+      const incomingEdge = map.edges[incomingEdgeId];
+      if (!incomingEdge) return undefined;
+      
+      // Determine train's arrival orientation
+      const arrivedAtFromNode = incomingEdge.fromNode === node.id;
+      
+      // Get candidate edges based on flow consistency
+      let candidates = Object.values(map.edges).filter(e => {
+          if (e.id === incomingEdgeId) return false; // Don't reverse
           
-          // Trailing Point (Merge):
-          // If we are at a Merge node (2 in, 1 out), 'edges' will have 1 item.
-          // SwitchState doesn't affect Merging in this simplified model.
-          return edges[0]?.id;
+          if (arrivedAtFromNode) {
+              // Moving backward → continue backward
+              return e.toNode === node.id;
+          } else {
+              // Moving forward → continue forward  
+              return e.fromNode === node.id;
+          }
+      }).sort((a, b) => a.id.localeCompare(b.id));
+      
+      if (candidates.length === 0) return undefined;
+      if (candidates.length === 1) return candidates[0].id;
+      
+      // Multiple candidates - check switch state
+      if (node.type === 'switch') {
+          const index = node.switchState || 0;
+          return candidates[index % candidates.length]?.id;
       }
+      
+      return candidates[0]?.id;
   }
 
   // --- Phase 1.5 ---
@@ -272,8 +321,19 @@ export class PhysicsEngine {
         // History (For snake rendering)
         train.visitedPath = train.visitedPath || []; // Safety init
         train.visitedPath.unshift(train.currentEdgeId); // Add current to history (front)
-        if (train.visitedPath.length > 5) train.visitedPath.pop(); // Keep 5 recent edges
+        if (train.visitedPath.length > 20) train.visitedPath.pop(); // Keep 20 recent edges
 
+        // Determine arrival node and new direction
+        const currentEdge = map.edges[train.currentEdgeId];
+        
+        if (!currentEdge) {
+            train.nextMoveIntent = undefined;
+            continue;
+        }
+        
+        const currentDir = train.direction || 1;
+        const arrivalNodeId = currentDir === 1 ? currentEdge.toNode : currentEdge.fromNode;
+        
         // Occupy New
         const nextEdgeId = train.nextMoveIntent.targetEdgeId;
         // Occupancy update is formal but doesn't block (since check is disabled)
@@ -285,10 +345,25 @@ export class PhysicsEngine {
              train.nextMoveIntent = undefined;
              continue;
         }
+        
+        const nextEdge = map.edges[nextEdgeId];
 
-        // Move proper
+        // AUTO-SET DIRECTION: determine based on edge geometry
+        // If next edge STARTS at arrival node → Forward (1)
+        // If next edge ENDS at arrival node → Backward (-1)
+        if (nextEdge.fromNode === arrivalNodeId) {
+            train.direction = 1;
+            train.position = train.nextMoveIntent.overflowDistance;
+        } else if (nextEdge.toNode === arrivalNodeId) {
+            train.direction = -1;
+            train.position = nextEdge.length - train.nextMoveIntent.overflowDistance;
+        } else {
+            console.error(`Edge discontinuity: ${train.currentEdgeId} -> ${nextEdgeId}`);
+            train.position = train.nextMoveIntent.overflowDistance; // Fallback
+        }
+
+        // Move train to new edge
         train.currentEdgeId = nextEdgeId;
-        train.position = train.nextMoveIntent.overflowDistance;
         
         // Consume path only if we followed the plan
         if (train.path && train.path.length > 0 && train.path[0] === nextEdgeId) {

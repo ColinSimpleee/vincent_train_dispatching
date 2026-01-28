@@ -51,6 +51,7 @@ export interface TrainPhysics {
   position: number;      // Distance from 'fromNode' along the edge
   speed: number;         // Units per second
   state: 'moving' | 'stopped';
+  direction: 1 | -1;     // 1 = Forward (fromNode→toNode), -1 = Backward (toNode→fromNode)
   
   // Navigation
   path: string[];        // Upcoming Edge IDs to traverse

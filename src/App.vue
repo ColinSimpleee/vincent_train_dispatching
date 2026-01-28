@@ -408,6 +408,7 @@ function spawnTrainIntoMap(id: string) {
         position: 0,
         speed: 60,
         state: 'moving',
+        direction: 1, // Default forward movement
         path: path,
         visitedPath: [], // Initialize empty visited path for tail rendering
         modelType: (waitingQueue[qIndex]?.model as any) || 'CR400AF',
