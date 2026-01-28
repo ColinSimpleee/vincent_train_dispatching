@@ -1,5 +1,27 @@
 import type { TrainPhysics, RailMap } from './RailGraph.ts';
 
+/**
+ * PhysicsEngine - 列车物理模拟引擎
+ * 
+ * 核心职责：
+ * - 计算列车移动意图（computeIntent）
+ * - 检测物理碰撞（detectPhysicalCollisions）
+ * - 解决路径冲突（resolveConflicts）
+ * - 提交状态更新（commitUpdates）
+ * 
+ * 道岔逻辑：
+ * - 分岔点（Facing Point）：根据 switchState 选择出路
+ * - 汇入点（Trailing Point）：忽略 switchState，直接通过
+ */
+
+// 物理常量
+const CAR_PITCH = 30;           // 车厢间距（单位）
+const DWELL_TIME_MIN = 1800;    // 最小停站时间（30秒 * 60 ticks）
+const DWELL_TIME_MAX = 3600;    // 最大停站时间（60秒 * 60 ticks）
+const BUFFER_TIME_MIN = 3600;   // 最小发车缓冲（60秒 * 60 ticks）
+const BUFFER_TIME_MAX = 5400;   // 最大发车缓冲（90秒 * 60 ticks）
+const RESUME_SPEED = 60;        // 恢复运行速度
+
 export class PhysicsEngine {
   
   static update(trains: TrainPhysics[], map: RailMap, dt: number, currentTick: number): void {
@@ -48,10 +70,10 @@ export class PhysicsEngine {
           train.passengerState = 'BOARDING';
           // Record Schedule Info
           train.arrivalTick = currentTick;
-          const dwell = 1800 + Math.floor(Math.random() * 1800); // 30s-1 minute
+          const dwell = DWELL_TIME_MIN + Math.floor(Math.random() * (DWELL_TIME_MAX - DWELL_TIME_MIN));
           train.boardingTimer = dwell;
           train.stopDuration = dwell;
-          train.stopBuffer = 3600 + Math.floor(Math.random() * 1800); // 1-1.5 min buffer
+          train.stopBuffer = BUFFER_TIME_MIN + Math.floor(Math.random() * (BUFFER_TIME_MAX - BUFFER_TIME_MIN));
           
           train.lastServicedEdgeId = train.currentEdgeId; 
           return;
@@ -134,7 +156,7 @@ export class PhysicsEngine {
 
       // All Clear -> Resume
       train.state = 'moving';
-      train.speed = 60; // Resume speed
+      train.speed = RESUME_SPEED;
   }
   
   private static resolveNextEdge(node: any, map: RailMap): string | undefined {
@@ -169,8 +191,7 @@ export class PhysicsEngine {
       // ACTUAL PENETRATION DETECTION (穿模检测)
       // Check if ANY PART of train A overlaps with ANY PART of train B
       
-      // Train physical dimensions
-      const CAR_PITCH = 30; // Distance between car centers
+      // Train physical dimensions (using global constant)
       
       for (let i = 0; i < trains.length; i++) {
           for (let j = i + 1; j < trains.length; j++) {
