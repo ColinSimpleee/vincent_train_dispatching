@@ -38,7 +38,8 @@ export const stationSmall: StationConfig = {
             "n_p4_end":   { "id": "n_p4_end",   "x": 1500, "y": 400, "type": "connector", "signalState": "green" },
 
             // Right Throat
-            "n_sw_R": { "id": "n_sw_R", "x": 1700, "y": 300, "type": "switch", "signalState": "green" },
+            "n_sw_R": { "id": "n_sw_R", "x": 1700, "y": 300, "type": "switch", "switchState": 0, "signalState": "green" },
+            "n_R_in": { "id": "n_R_in", "x": 10000, "y": 300, "type": "endpoint" },
             "n_R_out": { "id": "n_R_out", "x": 10000, "y": 300, "type": "endpoint" }
         },
         edges: {
@@ -56,11 +57,18 @@ export const stationSmall: StationConfig = {
             "t3": { "id": "t3", "fromNode": "n_p3_start", "toNode": "n_p3_end", "length": 1000, "occupiedBy": null, "isPlatform": true },
             "t4": { "id": "t4", "fromNode": "n_p4_start", "toNode": "n_p4_end", "length": 1000, "occupiedBy": null, "isPlatform": true },
             
-            // Throat Right (Simplified Outbound)
+            // Throat Right - Outbound (Merging: 4 tracks → 1 exit)
             "t1_out": { "id": "t1_out", "fromNode": "n_p1_end", "toNode": "n_sw_R", "length": 300, "occupiedBy": null, "control1": {x:1600,y:200}, "control2": {x:1600,y:300} },
             "t2_out": { "id": "t2_out", "fromNode": "n_p2_end", "toNode": "n_sw_R", "length": 300, "occupiedBy": null, "control1": {x:1600,y:260}, "control2": {x:1600,y:300} },
             "t3_out": { "id": "t3_out", "fromNode": "n_p3_end", "toNode": "n_sw_R", "length": 300, "occupiedBy": null, "control1": {x:1600,y:340}, "control2": {x:1600,y:300} },
             "t4_out": { "id": "t4_out", "fromNode": "n_p4_end", "toNode": "n_sw_R", "length": 300, "occupiedBy": null, "control1": {x:1600,y:400}, "control2": {x:1600,y:300} },
+            
+            // Throat Right - Inbound (Diverging: 1 entry → 4 tracks, controlled by switchState)
+            "e_entry_R": { "id": "e_entry_R", "fromNode": "n_R_in", "toNode": "n_sw_R", "length": 8300, "occupiedBy": null },
+            "e_R_t1": { "id": "e_R_t1", "fromNode": "n_sw_R", "toNode": "n_p1_end", "length": 300, "occupiedBy": null, "control1": {x:1600,y:300}, "control2": {x:1600,y:200} },
+            "e_R_t2": { "id": "e_R_t2", "fromNode": "n_sw_R", "toNode": "n_p2_end", "length": 300, "occupiedBy": null, "control1": {x:1600,y:300}, "control2": {x:1600,y:260} },
+            "e_R_t3": { "id": "e_R_t3", "fromNode": "n_sw_R", "toNode": "n_p3_end", "length": 300, "occupiedBy": null, "control1": {x:1600,y:300}, "control2": {x:1600,y:340} },
+            "e_R_t4": { "id": "e_R_t4", "fromNode": "n_sw_R", "toNode": "n_p4_end", "length": 300, "occupiedBy": null, "control1": {x:1600,y:300}, "control2": {x:1600,y:400} },
             
             "e_exit": { "id": "e_exit", "fromNode": "n_sw_R", "toNode": "n_R_out", "length": 8300, "occupiedBy": null },
         },
