@@ -251,7 +251,9 @@ function getCarTransform(train: TrainPhysics, carIndex: number) {
                   font-size="10" 
                   font-weight="bold"
                >
-                 S{{ (node.switchState || 0) + 1 }}
+                 <template v-if="getOutgoingEdges(node.id).length > 1">
+                   S{{ (node.switchState ?? 0) + 1 }}
+                 </template>
                </text>
                <!-- Label -->
                <text 
