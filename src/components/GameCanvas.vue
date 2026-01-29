@@ -8,9 +8,20 @@ interface Point {
   y: number;
 }
 
+// Keyboard control config
+interface KeyboardControlConfig {
+  nodeId: string
+  type: 'switch' | 'signal'
+  key: string
+  position: { x: number, y: number }
+  labelOffset: 'right' | 'left'
+}
+
 const props = defineProps<{
   map: RailMap;
   trains: TrainPhysics[];
+  keyboardMode: boolean;
+  keyMappings: KeyboardControlConfig[];
 }>();
 
 const emit = defineEmits<{
@@ -386,6 +397,23 @@ function getCarTransform(train: TrainPhysics, carIndex: number) {
               </button>
            </foreignObject>
         </template>
+      </g>
+      
+      <!-- Layer 7: Keyboard Control Labels -->
+      <g v-if="keyboardMode" class="keyboard-labels">
+        <text
+          v-for="mapping in keyMappings"
+          :key="`label-${mapping.nodeId}`"
+          :x="mapping.labelOffset === 'right' ? mapping.position.x + 35 : mapping.position.x - 35"
+          :y="mapping.position.y + 10"
+          font-size="36"
+          fill="#AD2626"
+          text-anchor="middle"
+          font-weight="bold"
+          style="pointer-events: none; user-select: none;"
+        >
+          {{ mapping.key }}
+        </text>
       </g>
     </svg>
   </div>

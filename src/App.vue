@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import GameCanvas from './components/GameCanvas.vue'
 import LeftPanel from './components/panels/LeftPanel.vue'
 import RightPanel from './components/panels/RightPanel.vue'
@@ -49,6 +49,19 @@ const gameSpeed = ref(1) // 1x, 2x, 5x, 10x
 // Game Data
 const map = reactive<RailMap>({ nodes: {}, edges: {}, platforms: [] }) // Init empty
 const trains = reactive<TrainPhysics[]>([])
+
+// Keyboard Control State
+interface KeyboardControlConfig {
+  nodeId: string
+  type: 'switch' | 'signal'
+  key: string
+  position: { x: number, y: number }
+  labelOffset: 'right' | 'left'
+}
+
+const keyboardMode = ref(false) // false = mouse mode, true = keyboard mode
+const showModeToast = ref(false)
+const keyMappings = ref<KeyboardControlConfig[]>([])
 
 // MVP Queue (Mock Data for Left Panel)
 // Correct calculation: 1 minute = 60 seconds × 60 ticks/second = 3600 ticks
@@ -214,6 +227,70 @@ function setGameSpeed(s: number) {
     gameSpeed.value = s
 }
 
+// --- Keyboard Control ---
+function generateKeyMappings(railMap: RailMap): KeyboardControlConfig[] {
+    const numberKeys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']
+    const letterKeys = 'QWERTYUIOPASDFGHJKLZXCVBNM'.split('')
+    const configs: KeyboardControlConfig[] = []
+    
+    // Separate switches and signals
+    const switches: any[] = []
+    const signals: any[] = []
+    
+    for (const node of Object.values(railMap.nodes)) {
+        // Add switches
+        if (node.type === 'switch') {
+            switches.push(node)
+        }
+        
+        // Add ALL nodes with signals (including switches)
+        if (node.signalState !== undefined) {
+            signals.push(node)
+        }
+    }
+    
+    // Sort both arrays left to right by X coordinate
+    switches.sort((a, b) => a.x - b.x)
+    signals.sort((a, b) => a.x - b.x)
+    
+    // Assign number keys to switches
+    switches.forEach((node, index) => {
+        if (index < numberKeys.length) {
+            configs.push({
+                nodeId: node.id,
+                type: 'switch',
+                key: numberKeys[index],
+                position: { x: node.x, y: node.y },
+                labelOffset: 'right'
+            })
+        }
+    })
+    
+    // Assign letter keys to signals
+    signals.forEach((node, index) => {
+        if (index < letterKeys.length) {
+            configs.push({
+                nodeId: node.id,
+                type: 'signal',
+                key: letterKeys[index],
+                position: { x: node.x, y: node.y },
+                labelOffset: 'left'
+            })
+        }
+    })
+    
+    return configs
+}
+
+function calculateLabelOffset(node: any, allNodes: any[]): 'right' | 'left' {
+    // User requirement: ALL switches on the right, ALL signals on the left
+    if (node.type === 'switch') {
+        return 'right'
+    } else {
+        return 'left'
+    }
+}
+
 // --- Navigation ---
 function handleStationSelect(config: StationConfig) {
     activeStation.value = config
@@ -224,6 +301,10 @@ function handleStationSelect(config: StationConfig) {
     // Load Map Data
     // Note: We deep copy to avoid mutating the template
     Object.assign(map, JSON.parse(JSON.stringify(config.mapData)))
+    
+    // Generate keyboard mappings
+    keyMappings.value = generateKeyMappings(map)
+    console.log('[KEYBOARD] Generated mappings:', keyMappings.value)
     
     // Switch View
     view.value = 'game'
@@ -395,6 +476,70 @@ function handleAction(action: string) {
     }
 }
 
+// --- Keyboard Control Functions ---
+function toggleKeyboardMode() {
+    keyboardMode.value = !keyboardMode.value
+    
+    // Show toast notification
+    showModeToast.value = true
+    setTimeout(() => {
+        showModeToast.value = false
+    }, 2000) // Hide after 2 seconds
+    
+    console.log(`[KEYBOARD] Mode: ${keyboardMode.value ? 'KEYBOARD' : 'MOUSE'}`)
+}
+
+function handleKeyPress(event: KeyboardEvent) {
+    // Ignore if not in game view
+    if (view.value !== 'game') return
+    
+    const key = event.key.toUpperCase()
+    
+    // Space key: toggle mode
+    if (key === ' ') {
+        event.preventDefault()
+        toggleKeyboardMode()
+        return
+    }
+    
+    // Only process other keys in keyboard mode
+    if (!keyboardMode.value) return
+    
+    // Find mapping for this key
+    const mapping = keyMappings.value.find(m => m.key === key)
+    if (!mapping) {
+        console.log(`[KEYBOARD] No mapping for key: ${key}`)
+        return
+    }
+    
+    event.preventDefault()
+    
+    // Toggle switch or signal
+    const node = map.nodes[mapping.nodeId]
+    if (!node) {
+        console.error(`[KEYBOARD] Node not found: ${mapping.nodeId}`)
+        return
+    }
+    
+    if (mapping.type === 'switch') {
+        // Toggle switch state (cycle through 0, 1, 2, 3...)
+        // Find all outgoing edges from this switch
+        const outgoingEdges = Object.values(map.edges).filter(e => e.fromNode === mapping.nodeId)
+        if (outgoingEdges.length === 0) {
+            console.warn(`[KEYBOARD] No outgoing edges for switch ${mapping.nodeId}`)
+            return
+        }
+        
+        const current = node.switchState ?? 0
+        node.switchState = (current + 1) % outgoingEdges.length
+        console.log(`[KEYBOARD] Switch ${mapping.nodeId} -> state ${node.switchState} (max: ${outgoingEdges.length - 1})`)
+    } else if (mapping.type === 'signal') {
+        // Toggle signal state
+        node.signalState = node.signalState === 'green' ? 'red' : 'green'
+        console.log(`[KEYBOARD] Signal ${mapping.nodeId} -> ${node.signalState}`)
+    }
+}
+
 function spawnTrainIntoMap(id: string) {
     const qIndex = waitingQueue.findIndex(q => q.id === id)
     const platformNum = Math.floor(Math.random() * 4) + 1 // 1..4
@@ -467,8 +612,16 @@ function spawnTrainIntoMap(id: string) {
     if (qIndex !== -1) waitingQueue.splice(qIndex, 1) 
 }
 
+// --- Lifecycle Hooks ---
+onMounted(() => {
+    // Register keyboard event listener
+    window.addEventListener('keydown', handleKeyPress)
+})
+
 onUnmounted(() => {
-  if (animationFrameId) cancelAnimationFrame(animationFrameId)
+    if (animationFrameId) cancelAnimationFrame(animationFrameId)
+    // Remove keyboard event listener
+    window.removeEventListener('keydown', handleKeyPress)
 })
 </script>
 
@@ -497,7 +650,13 @@ onUnmounted(() => {
             <h2>{{ activeStation?.name || 'GAME' }} - CONTROL CENTER</h2>
         </div>
         <div class="map-viewport">
-            <GameCanvas :map="map" :trains="trains" @train-action="handleTrainAction" />
+            <GameCanvas 
+                :map="map" 
+                :trains="trains" 
+                :keyboardMode="keyboardMode"
+                :keyMappings="keyMappings"
+                @train-action="handleTrainAction" 
+            />
         </div>
     </main>
 
@@ -511,6 +670,11 @@ onUnmounted(() => {
             :onSpeedChange="setGameSpeed"
         />
     </aside>
+    
+    <!-- Mode Toast Notification -->
+    <div v-if="showModeToast" class="mode-toast">
+        {{ keyboardMode ? '已切换为键盘控制模式' : '已切换为鼠标控制模式' }}
+    </div>
   </div>
 </template>
 
@@ -585,5 +749,21 @@ onUnmounted(() => {
     linear-gradient(90deg, #1a1a1a 1px, transparent 1px);
   background-size: 50px 50px;
   background-color: #0d0d0d;
+}
+
+.mode-toast {
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.85);
+  color: white;
+  padding: 14px 28px;
+  border-radius: 6px;
+  font-size: 20px;
+  font-weight: 500;
+  z-index: 9999;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
 }
 </style>
