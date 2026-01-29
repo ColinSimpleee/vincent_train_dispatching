@@ -308,14 +308,22 @@ function handleDepartAction(train: TrainPhysics): void {
     const current = train.currentEdgeId;
     const outbound = current + '_out';
     const reverse = current + '_rev';
+    const currentEdge = map.edges[current];
+
+    console.log(`[DEPART] Train ${train.id} departing from ${current}`);
+    console.log(`[DEPART] Current state: ${train.state}, speed: ${train.speed}, passengerState: ${train.passengerState}`);
+    console.log(`[DEPART] Position: ${train.position}, Edge length: ${currentEdge?.length}, At boundary: ${train.position >= (currentEdge?.length ?? 0)}`);
 
     train.passengerState = undefined;
 
     // Case 1: Already on exit track
     if (isExitingEdge(current)) {
         const edge = map.edges[current];
+        const startNode = edge?.toNode;
         train.path = edge ? safeFindPath(edge.toNode, 'n_out') : [];
         startTrainMoving(train, 80);
+        console.log(`[DEPART] Case 1: Already exiting`);
+        console.log(`[DEPART] Path from ${startNode} to n_out:`, train.path);
         return;
     }
 
@@ -324,26 +332,42 @@ function handleDepartAction(train: TrainPhysics): void {
         const revEdge = map.edges[reverse];
         train.currentEdgeId = reverse;
         train.position = 0;
-        train.path = safeFindPath(revEdge.toNode, getExitNodeId());
+        const startNode = revEdge.toNode;
+        const targetNode = getExitNodeId();
+        train.path = safeFindPath(startNode, targetNode);
         startTrainMoving(train, 60);
+        console.log(`[DEPART] Case 2: Turnaround to ${reverse}`);
+        console.log(`[DEPART] Path from ${startNode} to ${targetNode}:`, train.path);
         return;
     }
 
     // Case 3: Standard departure via outbound edge
     if (map.edges[outbound]) {
         const outEdge = map.edges[outbound];
-        const pathAfter = safeFindPath(outEdge.toNode, getExitNodeId());
-        train.path = pathAfter.length > 0 ? [outbound, ...pathAfter] : [outbound];
+        const startNode = outEdge.toNode;
+        const targetNode = getExitNodeId();
+        const pathAfter = safeFindPath(startNode, targetNode);
+        train.path = pathAfter;
         startTrainMoving(train, 80);
+        console.log(`[DEPART] Case 3: Standard via ${outbound}`);
+        console.log(`[DEPART] Path from ${startNode} (outEdge.toNode) to ${targetNode}:`, pathAfter);
+        console.log(`[DEPART] After startMoving: state=${train.state}, speed=${train.speed}`);
         return;
     }
 
     // Case 4: Fallback - find path from current position
     const currEdge = map.edges[current];
     if (currEdge) {
-        train.path = safeFindPath(currEdge.toNode, getExitNodeId());
+        const startNode = currEdge.toNode;
+        const targetNode = getExitNodeId();
+        train.path = safeFindPath(startNode, targetNode);
         startTrainMoving(train, 60);
+        console.log(`[DEPART] Case 4: Fallback`);
+        console.log(`[DEPART] Path from ${startNode} to ${targetNode}:`, train.path);
+        return;
     }
+
+    console.error(`[DEPART] No valid departure path found for train ${train.id} at ${current}`);
 }
 
 function handleAction(action: string) {
