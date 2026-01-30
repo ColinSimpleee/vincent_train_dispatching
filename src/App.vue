@@ -63,6 +63,11 @@ const keyboardMode = ref(false) // false = mouse mode, true = keyboard mode
 const showModeToast = ref(false)
 const keyMappings = ref<KeyboardControlConfig[]>([])
 
+// Game Control State
+const isPaused = ref(false)
+const showActionToast = ref(false)
+const actionToastMessage = ref('')
+
 // MVP Queue (Mock Data for Left Panel)
 // Correct calculation: 1 minute = 60 seconds × 60 ticks/second = 3600 ticks
 // Arrival times with 5-10 min intervals: 5 min, 12 min, 20 min
@@ -174,6 +179,12 @@ function loop(timestamp: number) {
   if (!lastTime) lastTime = timestamp
   const rawDt = (timestamp - lastTime) / 1000
   lastTime = timestamp
+
+  // Check if paused
+  if (isPaused.value) {
+    animationFrameId = requestAnimationFrame(loop)
+    return
+  }
 
   // Prevent spiral of death
   const dt = Math.min(rawDt, 0.1)
@@ -489,14 +500,74 @@ function toggleKeyboardMode() {
     console.log(`[KEYBOARD] Mode: ${keyboardMode.value ? 'KEYBOARD' : 'MOUSE'}`)
 }
 
+function togglePause() {
+    isPaused.value = !isPaused.value
+    showToast(isPaused.value ? '游戏已暂停' : '游戏继续')
+    console.log(`[GAME] Paused: ${isPaused.value}`)
+}
+
+function selectNextTrain() {
+    // Train order: queue first, then active trains (as shown in left panel)
+    const allTrainIds = [
+        ...waitingQueue.map(q => q.id),
+        ...trains.map(t => t.id)
+    ]
+    
+    if (allTrainIds.length === 0) {
+        showToast('没有可选择的列车')
+        return
+    }
+    
+    const currentIndex = selectedTrainId.value 
+        ? allTrainIds.indexOf(selectedTrainId.value) 
+        : -1
+    
+    const nextIndex = (currentIndex + 1) % allTrainIds.length
+    selectedTrainId.value = allTrainIds[nextIndex]
+    console.log(`[TRAIN] Selected: ${selectedTrainId.value}`)
+}
+
+function selectPreviousTrain() {
+    // Train order: queue first, then active trains (as shown in left panel)
+    const allTrainIds = [
+        ...waitingQueue.map(q => q.id),
+        ...trains.map(t => t.id)
+    ]
+    
+    if (allTrainIds.length === 0) {
+        showToast('没有可选择的列车')
+        return
+    }
+    
+    const currentIndex = selectedTrainId.value 
+        ? allTrainIds.indexOf(selectedTrainId.value) 
+        : -1
+    
+    const prevIndex = currentIndex <= 0 
+        ? allTrainIds.length - 1 
+        : currentIndex - 1
+    selectedTrainId.value = allTrainIds[prevIndex]
+    console.log(`[TRAIN] Selected: ${selectedTrainId.value}`)
+}
+
+function showToast(message: string) {
+    actionToastMessage.value = message
+    showActionToast.value = true
+    setTimeout(() => {
+        showActionToast.value = false
+    }, 2000)
+}
+
 function handleKeyPress(event: KeyboardEvent) {
     // Ignore if not in game view
     if (view.value !== 'game') return
     
-    const key = event.key.toUpperCase()
+    const key = event.key.toLowerCase()
+    const ctrl = event.ctrlKey
+    const shift = event.shiftKey
     
-    // Space key: toggle mode
-    if (key === ' ') {
+    // Space key: toggle mode (works in both modes)
+    if (key === ' ' && !ctrl && !shift) {
         event.preventDefault()
         toggleKeyboardMode()
         return
@@ -505,10 +576,97 @@ function handleKeyPress(event: KeyboardEvent) {
     // Only process other keys in keyboard mode
     if (!keyboardMode.value) return
     
+    // === Game Control Shortcuts (Keyboard Mode Only) ===
+    
+    // Ctrl+P: Pause/Resume
+    if (ctrl && key === 'p') {
+        event.preventDefault()
+        togglePause()
+        return
+    }
+    
+    // Ctrl+1/2/5/0: Speed Control
+    if (ctrl && key === '1') {
+        event.preventDefault()
+        gameSpeed.value = 1
+        showToast('倍速: 1x')
+        return
+    }
+    if (ctrl && key === '2') {
+        event.preventDefault()
+        gameSpeed.value = 2
+        showToast('倍速: 2x')
+        return
+    }
+    if (ctrl && key === '5') {
+        event.preventDefault()
+        gameSpeed.value = 5
+        showToast('倍速: 5x')
+        return
+    }
+    if (ctrl && key === '0') {
+        event.preventDefault()
+        gameSpeed.value = 10
+        showToast('倍速: 10x')
+        return
+    }
+    
+    // Arrow Keys: Train Selection
+    if (key === 'arrowup') {
+        event.preventDefault()
+        selectPreviousTrain()
+        return
+    }
+    if (key === 'arrowdown') {
+        event.preventDefault()
+        selectNextTrain()
+        return
+    }
+    
+    // Tab: Admit Train
+    if (key === 'tab') {
+        event.preventDefault()
+        if (!selectedTrainId.value) {
+            showToast('未选择列车')
+            return
+        }
+        handleAction('ADMIT')
+        showToast(`${selectedTrainId.value} 允许进站`)
+        return
+    }
+    
+    // Ctrl+G: Depart Signal
+    if (ctrl && key === 'g') {
+        event.preventDefault()
+        if (!selectedTrainId.value) {
+            showToast('未选择列车')
+            return
+        }
+        handleAction('DEPART')
+        showToast(`${selectedTrainId.value} 发车信号`)
+        return
+    }
+    
+    // Shift+A: Emergency Stop
+    if (shift && key === 'a') {
+        event.preventDefault()
+        if (!selectedTrainId.value) {
+            showToast('未选择列车')
+            return
+        }
+        handleAction('STOP')
+        showToast(`${selectedTrainId.value} 紧急停车`)
+        return
+    }
+    
+    // === Switch/Signal Control (Existing Logic) ===
+    
+    const keyUpper = key.toUpperCase()
+    
     // Find mapping for this key
-    const mapping = keyMappings.value.find(m => m.key === key)
+    const mapping = keyMappings.value.find(m => m.key === keyUpper)
     if (!mapping) {
-        console.log(`[KEYBOARD] No mapping for key: ${key}`)
+        console.log(`[KEYBOARD] No mapping for key: ${keyUpper}`)
         return
     }
     
@@ -674,6 +832,11 @@ onUnmounted(() => {
     <!-- Mode Toast Notification -->
     <div v-if="showModeToast" class="mode-toast">
         {{ keyboardMode ? '已切换为键盘控制模式' : '已切换为鼠标控制模式' }}
+    </div>
+    
+    <!-- Action Toast Notification -->
+    <div v-if="showActionToast" class="action-toast">
+        {{ actionToastMessage }}
     </div>
   </div>
 </template>
