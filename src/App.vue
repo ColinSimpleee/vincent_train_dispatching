@@ -585,26 +585,26 @@ function handleKeyPress(event: KeyboardEvent) {
         return
     }
     
-    // Ctrl+1/2/5/0: Speed Control
-    if (ctrl && key === '1') {
+    // Shift+1/2/5/0: Speed Control
+    if (shift && key === '1') {
         event.preventDefault()
         gameSpeed.value = 1
         showToast('倍速: 1x')
         return
     }
-    if (ctrl && key === '2') {
+    if (shift && key === '2') {
         event.preventDefault()
         gameSpeed.value = 2
         showToast('倍速: 2x')
         return
     }
-    if (ctrl && key === '5') {
+    if (shift && key === '5') {
         event.preventDefault()
         gameSpeed.value = 5
         showToast('倍速: 5x')
         return
     }
-    if (ctrl && key === '0') {
+    if (shift && key === '0') {
         event.preventDefault()
         gameSpeed.value = 10
         showToast('倍速: 10x')
