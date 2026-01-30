@@ -86,6 +86,18 @@ function getStatusForActiveTrain(train: TrainPhysics): TrainStatusInfo {
   const isAtPlatform = train.passengerState === 'BOARDING' ||
                        (train.state === 'stopped' && isPlatformEdge(edgeId));
 
+  // 可以出站：上客完成，准备出发
+  if (train.passengerState === 'READY' && train.state === 'stopped' && isPlatformEdge(edgeId)) {
+    return {
+      status: '可以出站',
+      statusColor: '#2ecc71',
+      location: getTrainLocation(train),
+      estimatedTime: estimateDepartureTime(train),
+      timeLabel: '预计出站',
+      punctuality: getPunctuality(0)
+    };
+  }
+
   if (isAtPlatform) {
     return {
       status: '停站中',
