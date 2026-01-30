@@ -157,7 +157,6 @@ defineProps<{
   padding: 12px;
   border: none;
   font-weight: bold;
-  text-transform: uppercase;
   cursor: pointer;
   color: #fff;
   transition: filter 0.2s;
