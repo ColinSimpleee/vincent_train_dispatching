@@ -588,25 +588,26 @@ function handleKeyPress(event: KeyboardEvent) {
     // Shift+1/2/5/0: Speed Control
     // Note: Shift+number produces symbols in event.key (e.g., Shift+1 = '!')
     // So we use event.code to detect the actual number keys
-    if (shift && event.code === 'Digit1') {
+    // Support both main keyboard (Digit) and numpad (Numpad)
+    if (shift && (event.code === 'Digit1' || event.code === 'Numpad1')) {
         event.preventDefault()
         gameSpeed.value = 1
         showToast('倍速: 1x')
         return
     }
-    if (shift && event.code === 'Digit2') {
+    if (shift && (event.code === 'Digit2' || event.code === 'Numpad2')) {
         event.preventDefault()
         gameSpeed.value = 2
         showToast('倍速: 2x')
         return
     }
-    if (shift && event.code === 'Digit5') {
+    if (shift && (event.code === 'Digit5' || event.code === 'Numpad5')) {
         event.preventDefault()
         gameSpeed.value = 5
         showToast('倍速: 5x')
         return
     }
-    if (shift && event.code === 'Digit0') {
+    if (shift && (event.code === 'Digit0' || event.code === 'Numpad0')) {
         event.preventDefault()
         gameSpeed.value = 10
         showToast('倍速: 10x')
