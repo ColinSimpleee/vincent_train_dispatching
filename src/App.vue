@@ -833,6 +833,7 @@ onUnmounted(() => {
             :onAction="handleAction"
             :gameSpeed="gameSpeed"
             :onSpeedChange="setGameSpeed"
+            :keyboardMode="keyboardMode"
         />
     </aside>
     

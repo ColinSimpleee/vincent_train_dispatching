@@ -16,6 +16,7 @@ defineProps<{
   onAction: (action: string) => void;
   gameSpeed: number;
   onSpeedChange: (s: number) => void;
+  keyboardMode: boolean; // Keyboard mode flag
 }>();
 </script>
 
@@ -55,9 +56,15 @@ defineProps<{
     <div class="module controls" v-if="selectedTrain">
        <div class="label">调度指令</div>
        <div class="btn-grid">
-         <button class="btn primary" @click="onAction('ADMIT')">允许进站</button>
-         <button class="btn success" @click="onAction('DEPART')">发车信号</button>
-         <button class="btn danger" @click="onAction('STOP')">紧急停车</button>
+         <button class="btn primary" @click="onAction('ADMIT')">
+           允许进站<span v-if="keyboardMode" class="shortcut-hint">(Tab)</span>
+         </button>
+         <button class="btn success" @click="onAction('DEPART')">
+           发车信号<span v-if="keyboardMode" class="shortcut-hint">(Shift+G)</span>
+         </button>
+         <button class="btn danger" @click="onAction('STOP')">
+           紧急停车<span v-if="keyboardMode" class="shortcut-hint">(Shift+A)</span>
+         </button>
        </div>
     </div>
 
