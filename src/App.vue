@@ -578,8 +578,8 @@ function handleKeyPress(event: KeyboardEvent) {
     
     // === Game Control Shortcuts (Keyboard Mode Only) ===
     
-    // Ctrl+P: Pause/Resume
-    if (ctrl && key === 'p') {
+    // Shift+Space: Pause/Resume
+    if (shift && key === ' ') {
         event.preventDefault()
         togglePause()
         return
@@ -635,8 +635,8 @@ function handleKeyPress(event: KeyboardEvent) {
         return
     }
     
-    // Ctrl+G: Depart Signal
-    if (ctrl && key === 'g') {
+    // Shift+G: Depart Signal
+    if (shift && key === 'g') {
         event.preventDefault()
         if (!selectedTrainId.value) {
             showToast('未选择列车')
