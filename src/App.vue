@@ -929,4 +929,20 @@ onUnmounted(() => {
   pointer-events: none;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
 }
+
+.action-toast {
+  position: absolute;
+  top: 120px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(26, 115, 140, 0.9);
+  color: white;
+  padding: 12px 24px;
+  border-radius: 6px;
+  font-size: 18px;
+  font-weight: 500;
+  z-index: 9999;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
 </style>
