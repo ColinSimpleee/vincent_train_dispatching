@@ -847,9 +847,9 @@ onUnmounted(() => {
 .app-layout {
   display: grid;
   grid-template-columns: 280px 1fr 300px;
-  height: 100vh;
+  height: 100%;
   min-height: 400px;
-  width: 100vw;
+  width: 100%;
   min-width: 900px;
   background: #121212;
   overflow: hidden;
