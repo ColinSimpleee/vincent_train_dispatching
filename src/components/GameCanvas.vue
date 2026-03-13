@@ -165,7 +165,7 @@ function getCarTransform(train: TrainPhysics, carIndex: number) {
 
 <template>
   <div class="canvas-container">
-    <svg class="rail-canvas" viewBox="0 0 2400 600" preserveAspectRatio="xMidYMid meet">
+    <svg class="rail-canvas" viewBox="0 0 2400 600" preserveAspectRatio="none">
       <!-- Layer 0: Platforms (Concrete Islands) -->
       <g class="platforms">
 
