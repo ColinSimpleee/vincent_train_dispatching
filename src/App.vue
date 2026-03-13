@@ -270,7 +270,7 @@ function generateKeyMappings(railMap: RailMap): KeyboardControlConfig[] {
             configs.push({
                 nodeId: node.id,
                 type: 'switch',
-                key: numberKeys[index],
+                key: numberKeys[index] ?? '',
                 position: { x: node.x, y: node.y },
                 labelOffset: 'right'
             })
@@ -283,7 +283,7 @@ function generateKeyMappings(railMap: RailMap): KeyboardControlConfig[] {
             configs.push({
                 nodeId: node.id,
                 type: 'signal',
-                key: letterKeys[index],
+                key: letterKeys[index] ?? '',
                 position: { x: node.x, y: node.y },
                 labelOffset: 'left'
             })
@@ -342,15 +342,8 @@ function handleSelect(id: string) {
 function handleTrainAction(payload: { id: string, action: string }) {
     if (payload.action === 'DEPART') {
         const t = trains.find(train => train.id === payload.id)
-        if (t) {
-            // Clear passenger state to allow movement
-            // PhysicsEngine loop will require currentEdgeId vs lastServicedEdgeId logic.
-            // Since lastServicedEdgeId is set, it won't trigger "auto stop" again on this edge.
-            // computeIntent will proceed to resolveNextEdge.
-            t.passengerState = undefined; 
-            t.state = 'moving';
-            t.speed = 60; 
-        }
+        // Route through handleDepartAction to ensure proper path planning
+        if (t) handleDepartAction(t)
     }
 }
 
@@ -523,7 +516,7 @@ function selectNextTrain() {
         : -1
     
     const nextIndex = (currentIndex + 1) % allTrainIds.length
-    selectedTrainId.value = allTrainIds[nextIndex]
+    selectedTrainId.value = allTrainIds[nextIndex] ?? null
     console.log(`[TRAIN] Selected: ${selectedTrainId.value}`)
 }
 
@@ -546,7 +539,7 @@ function selectPreviousTrain() {
     const prevIndex = currentIndex <= 0 
         ? allTrainIds.length - 1 
         : currentIndex - 1
-    selectedTrainId.value = allTrainIds[prevIndex]
+    selectedTrainId.value = allTrainIds[prevIndex] ?? null
     console.log(`[TRAIN] Selected: ${selectedTrainId.value}`)
 }
 
@@ -751,7 +744,8 @@ function spawnTrainIntoMap(id: string) {
         path: path,
         visitedPath: [], // Initialize empty visited path for tail rendering
         modelType: waitingQueue[qIndex]?.model ?? 'CR400AF',
-        isCoupled: Math.random() < 0.2
+        isCoupled: Math.random() < 0.2,
+        scheduledArriveTick: waitingQueue[qIndex]?.schedule?.arriveTick
     }
 
     const spawnEdge = map.edges[currentEdgeId];

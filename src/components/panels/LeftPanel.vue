@@ -41,16 +41,27 @@ function tickToTime(tick: number): string {
   return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
 }
 
+interface PunctualityInfo {
+  text: string;
+  color: string;
+  minutes: number;
+  isDurationMode: boolean; // true = show "预计x分钟后出站", false = show punctuality
+}
+
 interface TrainStatusInfo {
   status: string;
   statusColor: string;
   location: string;
   estimatedTime: string;
   timeLabel: string;
-  punctuality: { text: string; color: string; minutes: number };
+  punctuality: PunctualityInfo;
 }
 
-const DEFAULT_PUNCTUALITY = { text: '准点', color: '#f1c40f', minutes: 0 };
+const TICKS_PER_GAME_SECOND = 60;
+const TICKS_PER_GAME_MINUTE = TICKS_PER_GAME_SECOND * 60;
+const DEPARTURE_BUFFER_TICKS = 90 * TICKS_PER_GAME_SECOND; // 90 game-seconds
+
+const DEFAULT_PUNCTUALITY: PunctualityInfo = { text: '准点', color: '#f1c40f', minutes: 0, isDurationMode: false };
 
 function isEnteringEdge(edgeId: string): boolean {
   return edgeId.includes('entry') ||
@@ -80,13 +91,50 @@ function getStatusForQueuedTrain(queueTrain: QueuedTrain): TrainStatusInfo {
   };
 }
 
+function getMinutesUntilDeparture(train: TrainPhysics): number {
+  const currentTick = props.currentTick ?? 0;
+  const arrivalTick = train.arrivalTick ?? currentTick;
+  const stopDuration = train.stopDuration ?? 0;
+  const stopBuffer = train.stopBuffer ?? 0;
+  const remainingTicks = (arrivalTick + stopDuration + stopBuffer) - currentTick;
+  return Math.max(0, Math.ceil(remainingTicks / TICKS_PER_GAME_MINUTE));
+}
+
+function getDeparturePunctuality(train: TrainPhysics): PunctualityInfo {
+  const currentTick = props.currentTick ?? 0;
+  const scheduledArriveTick = train.scheduledArriveTick ?? 0;
+  const stopDuration = train.stopDuration ?? 0;
+  // Scheduled departure = scheduled arrive + stop duration + 90 game-seconds
+  const scheduledDepartureTick = scheduledArriveTick + stopDuration + DEPARTURE_BUFFER_TICKS;
+  const diffTicks = currentTick - scheduledDepartureTick;
+  const diffMinutes = Math.round(diffTicks / TICKS_PER_GAME_MINUTE);
+
+  if (diffMinutes < -1) {
+    return { text: `早点 ${Math.abs(diffMinutes)}'`, color: '#2ecc71', minutes: diffMinutes, isDurationMode: false };
+  }
+  if (diffMinutes > 1) {
+    return { text: `晚点 ${diffMinutes}'`, color: '#e74c3c', minutes: diffMinutes, isDurationMode: false };
+  }
+  return { text: '准点', color: '#f1c40f', minutes: 0, isDurationMode: false };
+}
+
+function getDurationPunctuality(train: TrainPhysics): PunctualityInfo {
+  // 列车尚未到达站台（arrivalTick 未设置），不显示出站倒计时
+  if (!train.arrivalTick) {
+    return { text: '进站中...', color: '#3498db', minutes: 0, isDurationMode: true };
+  }
+  const minutes = getMinutesUntilDeparture(train);
+  const text = minutes <= 0 ? '即将出站' : `预计${minutes}分钟后出站`;
+  return { text, color: '#3498db', minutes, isDurationMode: true };
+}
+
 function getStatusForActiveTrain(train: TrainPhysics): TrainStatusInfo {
   const edgeId = train.currentEdgeId || '';
   const isMoving = train.state === 'moving' || train.speed > 0;
   const isAtPlatform = train.passengerState === 'BOARDING' ||
                        (train.state === 'stopped' && isPlatformEdge(edgeId));
 
-  // 可以出站：上客完成，准备出发
+  // 可以出站：上客完成，准备出发 → 显示真实准点情况
   if (train.passengerState === 'READY' && train.state === 'stopped' && isPlatformEdge(edgeId)) {
     return {
       status: '可以出站',
@@ -94,10 +142,11 @@ function getStatusForActiveTrain(train: TrainPhysics): TrainStatusInfo {
       location: getTrainLocation(train),
       estimatedTime: estimateDepartureTime(train),
       timeLabel: '预计出站',
-      punctuality: getPunctuality(0)
+      punctuality: getDeparturePunctuality(train)
     };
   }
 
+  // 停站中（上客中）→ 显示"预计x分钟后出站"
   if (isAtPlatform) {
     return {
       status: '停站中',
@@ -105,11 +154,12 @@ function getStatusForActiveTrain(train: TrainPhysics): TrainStatusInfo {
       location: getTrainLocation(train),
       estimatedTime: estimateDepartureTime(train),
       timeLabel: '预计出站',
-      punctuality: getPunctuality(0)
+      punctuality: getDurationPunctuality(train)
     };
   }
 
   if (isMoving) {
+    // 正在进站 → 显示"预计x分钟后出站"
     if (isEnteringEdge(edgeId)) {
       return {
         status: '正在进站',
@@ -117,7 +167,7 @@ function getStatusForActiveTrain(train: TrainPhysics): TrainStatusInfo {
         location: getTrainLocation(train),
         estimatedTime: estimateArrivalTime(),
         timeLabel: '预计进站',
-        punctuality: getPunctuality(0)
+        punctuality: getDurationPunctuality(train)
       };
     }
     if (isExitingEdge(edgeId)) {
@@ -127,7 +177,7 @@ function getStatusForActiveTrain(train: TrainPhysics): TrainStatusInfo {
         location: getTrainLocation(train),
         estimatedTime: estimateArrivalTime(),
         timeLabel: '预计出站',
-        punctuality: getPunctuality(0)
+        punctuality: DEFAULT_PUNCTUALITY
       };
     }
     return {
@@ -136,7 +186,7 @@ function getStatusForActiveTrain(train: TrainPhysics): TrainStatusInfo {
       location: getTrainLocation(train),
       estimatedTime: estimateArrivalTime(),
       timeLabel: '预计到达',
-      punctuality: getPunctuality(0)
+      punctuality: DEFAULT_PUNCTUALITY
     };
   }
 
@@ -145,7 +195,7 @@ function getStatusForActiveTrain(train: TrainPhysics): TrainStatusInfo {
       status: '停车',
       statusColor: '#e67e22',
       location: getTrainLocation(train),
-      estimatedTime: tickToTime(props.currentTick || 0),
+      estimatedTime: tickToTime(props.currentTick ?? 0),
       timeLabel: '当前时间',
       punctuality: DEFAULT_PUNCTUALITY
     };
@@ -211,34 +261,19 @@ function estimateDepartureTime(train: TrainPhysics): string {
   return tickToTime(currentTick + remainingTicks + 3600);
 }
 
-// Get punctuality status
-function getPunctuality(scheduledTick: number) {
-  const currentTick = props.currentTick || 0;
+// Get punctuality status for queued trains (compared to scheduled arrive tick)
+function getPunctuality(scheduledTick: number): PunctualityInfo {
+  const currentTick = props.currentTick ?? 0;
   const diffTicks = currentTick - scheduledTick;
-  const diffMinutes = Math.floor(diffTicks / 3600); // 3600 ticks = 1 minute
-  
+  const diffMinutes = Math.floor(diffTicks / TICKS_PER_GAME_MINUTE);
+
   if (diffMinutes < -1) {
-    // Early
-    return {
-      text: `早点 ${Math.abs(diffMinutes)}'`,
-      color: '#2ecc71', // Green
-      minutes: diffMinutes
-    };
-  } else if (diffMinutes > 1) {
-    // Late
-    return {
-      text: `晚点 ${diffMinutes}'`,
-      color: '#e74c3c', // Red
-      minutes: diffMinutes
-    };
-  } else {
-    // On time
-    return {
-      text: '准点',
-      color: '#f1c40f', // Yellow
-      minutes: 0
-    };
+    return { text: `早点 ${Math.abs(diffMinutes)}'`, color: '#2ecc71', minutes: diffMinutes, isDurationMode: false };
   }
+  if (diffMinutes > 1) {
+    return { text: `晚点 ${diffMinutes}'`, color: '#e74c3c', minutes: diffMinutes, isDurationMode: false };
+  }
+  return { text: '准点', color: '#f1c40f', minutes: 0, isDurationMode: false };
 }
 
 // Combine all trains (queue + active)
@@ -277,14 +312,18 @@ const allTrains = computed(() => {
              {{ item.status }}
            </span>
          </div>
-         <div class="item-meta">
-            <span class="punctuality" :style="{ color: item.punctuality.color }">
-              {{ item.punctuality.text }}
-            </span>
-            <span class="time-info">
-              {{ item.timeLabel }}: {{ item.estimatedTime }}
-            </span>
-         </div>
+          <div class="item-meta">
+             <span
+               class="punctuality"
+               :class="{ 'punctuality--duration': item.punctuality.isDurationMode }"
+               :style="{ color: item.punctuality.color }"
+             >
+               {{ item.punctuality.text }}
+             </span>
+             <span v-if="!item.punctuality.isDurationMode" class="time-info">
+               {{ item.timeLabel }}: {{ item.estimatedTime }}
+             </span>
+          </div>
        </div>
     </div>
   </div>
@@ -380,6 +419,12 @@ h3 {
 .punctuality {
   font-weight: bold;
   white-space: nowrap;
+}
+
+.punctuality--duration {
+  font-size: 10px;
+  font-weight: normal;
+  opacity: 0.9;
 }
 
 .time-info {
