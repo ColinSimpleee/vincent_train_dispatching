@@ -848,7 +848,9 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: 280px 1fr 300px;
   height: 100vh;
+  min-height: 400px;
   width: 100vw;
+  min-width: 900px;
   background: #121212;
   overflow: hidden;
   font-family: "Segoe UI", "PingFang SC", sans-serif;
@@ -908,6 +910,7 @@ onUnmounted(() => {
 .map-viewport {
   flex: 1;
   position: relative;
+  min-height: 200px;
   /* Pattern Background for Tech Feel */
   background-image: 
     linear-gradient(#1a1a1a 1px, transparent 1px),
