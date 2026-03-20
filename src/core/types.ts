@@ -47,12 +47,50 @@ export interface Platform {
 export interface Station {
   tick: number;
   platforms: Platform[];
-  waitingQueue: Train[]; 
+  waitingQueue: Train[];
   activeTrains: Train[]; // On map (moving or at platform)
   departedTrains: Train[];
   score: number;
   isGameOver: boolean;
   config: {
-    turnaroundLockTime: number; 
+    turnaroundLockTime: number;
   };
+}
+
+import type { TrainModel } from './RailGraph'
+
+export interface ScheduleConfig {
+  peakIntervalRange: [number, number]
+  offPeakIntervalRange: [number, number]
+  peakWindows: [number, number][]
+  directionRatio: number
+  lines?: string[]
+  lineTrafficWeight?: Record<string, number>
+}
+
+export type ScheduleEntryStatus = 'upcoming' | 'waiting' | 'admitted' | 'departed'
+
+export interface ScheduleEntry {
+  id: string
+  direction: 'up' | 'down'
+  model: TrainModel
+  line?: string
+
+  scheduledArriveTick: number
+  scheduledStopDuration: number
+  scheduledDepartTick: number
+
+  currentDelay: number
+
+  handoverDelay?: number
+  handoverTick?: number
+  reactionGraceTicks?: number
+  finalDelay?: number
+
+  status: ScheduleEntryStatus
+}
+
+export interface DelaySpread {
+  delta: number
+  level: 'improved' | 'neutral' | 'worsened'
 }

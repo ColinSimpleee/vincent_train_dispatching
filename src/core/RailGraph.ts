@@ -70,6 +70,7 @@ export interface TrainPhysics {
   
   // Control Handover
   isHandedOver?: boolean; // True if train has passed the control boundary
+  scheduleEntryId?: string;
 
   // Schedule / Timing
   scheduledArriveTick?: number; // Original scheduled arrival tick from queue (for punctuality)
