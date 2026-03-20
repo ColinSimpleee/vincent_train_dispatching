@@ -27,9 +27,11 @@ describe('ScheduleManager', () => {
 
     it('高峰时段生成间隔为 2-3 分钟', () => {
       const manager = new ScheduleManager(baseConfig, 1, 0, peakStartTimeOffset)
-      const entries = manager.getAllEntries()
-      for (let i = 1; i < entries.length; i++) {
-        const gap = entries[i]!.scheduledArriveTick - entries[i - 1]!.scheduledArriveTick
+      // 跳过前 3 条初始种子条目（它们的 arriveTick 都是 startTick）
+      const generated = manager.getAllEntries().filter((e) => e.status === 'upcoming')
+      for (let i = 1; i < generated.length; i++) {
+        const gap =
+          generated[i]!.scheduledArriveTick - generated[i - 1]!.scheduledArriveTick
         const gapMinutes = gap / 3600
         expect(gapMinutes).toBeGreaterThanOrEqual(2)
         expect(gapMinutes).toBeLessThanOrEqual(3)
@@ -38,18 +40,31 @@ describe('ScheduleManager', () => {
 
     it('低谷时段生成间隔为 6-10 分钟', () => {
       const manager = new ScheduleManager(baseConfig, 1, 0, offPeakStartTimeOffset)
-      const entries = manager.getAllEntries()
-      for (let i = 1; i < entries.length; i++) {
-        const gap = entries[i]!.scheduledArriveTick - entries[i - 1]!.scheduledArriveTick
+      const generated = manager.getAllEntries().filter((e) => e.status === 'upcoming')
+      for (let i = 1; i < generated.length; i++) {
+        const gap =
+          generated[i]!.scheduledArriveTick - generated[i - 1]!.scheduledArriveTick
         const gapMinutes = gap / 3600
         expect(gapMinutes).toBeGreaterThanOrEqual(6)
         expect(gapMinutes).toBeLessThanOrEqual(10)
       }
     })
 
-    it('所有条目初始状态为 upcoming', () => {
+    it('开局有 3 趟 waiting 状态的列车', () => {
       const manager = new ScheduleManager(baseConfig, 1, 0, 0)
-      for (const entry of manager.getAllEntries()) {
+      const waiting = manager.getWaitingEntries()
+      expect(waiting.length).toBe(3)
+      // 初始列车宽限时间为 90 秒 = 5400 ticks
+      for (const entry of waiting) {
+        expect(entry.reactionGraceTicks).toBe(5400)
+      }
+    })
+
+    it('生成的时刻表条目初始状态为 upcoming', () => {
+      const manager = new ScheduleManager(baseConfig, 1, 0, 0)
+      const upcoming = manager.getAllEntries().filter((e) => e.status === 'upcoming')
+      expect(upcoming.length).toBeGreaterThan(0)
+      for (const entry of upcoming) {
         expect(entry.status).toBe('upcoming')
       }
     })
@@ -145,8 +160,8 @@ describe('ScheduleManager', () => {
   describe('状态转换', () => {
     it('checkArrivals 在正确时刻将 upcoming → waiting', () => {
       const manager = new ScheduleManager(baseConfig, 1, 0, 0)
-      const entries = manager.getAllEntries()
-      const first = entries[0]!
+      // 跳过初始种子，取第一个 upcoming 条目
+      const first = manager.getAllEntries().find((e) => e.status === 'upcoming')!
       const effectiveArrive = first.scheduledArriveTick + first.currentDelay
 
       manager.checkArrivals(effectiveArrive - 1)

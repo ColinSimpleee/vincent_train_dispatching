@@ -11,6 +11,8 @@ const DELAY_DRIFT_PROBABILITY = 0.002
 const DELAY_DRIFT_AMPLITUDE = 30
 const SPREAD_THRESHOLD = 1800 // 30 秒
 const MAX_DEPARTED_KEPT = 50
+const INITIAL_WAITING_COUNT = 3
+const INITIAL_GRACE_TICKS = 5400 // 90 秒特例宽限
 
 const TRAIN_MODELS: TrainModel[] = ['CR400AF', 'CR400BF', 'CRH380A']
 
@@ -33,7 +35,21 @@ export class ScheduleManager {
     this.difficulty = difficulty
     this.gameStartTimeOffsetTicks = gameStartTimeOffsetTicks
     this.lastGeneratedTick = startTick
+    this.seedInitialWaiting(startTick)
     this.generateUpTo(startTick + FUTURE_WINDOW)
+  }
+
+  /** 开局预生成 3 趟已在等待区的列车，宽限时间 90 秒 */
+  private seedInitialWaiting(startTick: number): void {
+    for (let i = 0; i < INITIAL_WAITING_COUNT; i++) {
+      const entry = this.createEntry(startTick)
+      entry.status = 'waiting'
+      entry.currentDelay = 0
+      entry.handoverDelay = 0
+      entry.handoverTick = startTick
+      entry.reactionGraceTicks = INITIAL_GRACE_TICKS
+      this.entries.push(entry)
+    }
   }
 
   private generateUpTo(endTick: number): void {
