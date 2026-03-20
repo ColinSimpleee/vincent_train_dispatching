@@ -56,20 +56,25 @@ describe('ScheduleManager', () => {
 
     it('偶数编号为上行，奇数编号为下行', () => {
       const manager = new ScheduleManager(baseConfig, 1, 0, 0)
-      for (const entry of manager.getAllEntries()) {
+      const upEntries = manager.getAllEntries().filter((e) => e.direction === 'up')
+      const downEntries = manager.getAllEntries().filter((e) => e.direction === 'down')
+
+      for (const entry of upEntries) {
         const num = parseInt(entry.id.replace(/\D/g, ''))
-        if (entry.direction === 'up') {
-          expect(num % 2).toBe(0)
-        } else {
-          expect(num % 2).toBe(1)
-        }
+        expect(num % 2).toBe(0)
+      }
+      for (const entry of downEntries) {
+        const num = parseInt(entry.id.replace(/\D/g, ''))
+        expect(num % 2).toBe(1)
       }
     })
 
     it('scheduledDepartTick = scheduledArriveTick + scheduledStopDuration', () => {
       const manager = new ScheduleManager(baseConfig, 1, 0, 0)
       for (const entry of manager.getAllEntries()) {
-        expect(entry.scheduledDepartTick).toBe(entry.scheduledArriveTick + entry.scheduledStopDuration)
+        expect(entry.scheduledDepartTick).toBe(
+          entry.scheduledArriveTick + entry.scheduledStopDuration,
+        )
       }
     })
 
@@ -115,7 +120,7 @@ describe('ScheduleManager', () => {
       const delayBefore = manager.getEntryById(firstId)!.currentDelay
 
       for (let i = 0; i < 10000; i++) {
-        manager.updateDelays(firstArrive + i)
+        manager.updateDelays()
       }
 
       expect(manager.getEntryById(firstId)!.currentDelay).toBe(delayBefore)
@@ -125,13 +130,14 @@ describe('ScheduleManager', () => {
       const manager = new ScheduleManager(baseConfig, 4, 0, 0)
 
       for (let i = 0; i < 100000; i++) {
-        manager.updateDelays(i)
+        manager.updateDelays()
       }
 
-      for (const entry of manager.getAllEntries()) {
-        if (entry.status === 'upcoming') {
-          expect(Math.abs(entry.currentDelay)).toBeLessThanOrEqual(36000)
-        }
+      const upcomingEntries = manager
+        .getAllEntries()
+        .filter((e) => e.status === 'upcoming')
+      for (const entry of upcomingEntries) {
+        expect(Math.abs(entry.currentDelay)).toBeLessThanOrEqual(36000)
       }
     })
   })
@@ -160,7 +166,7 @@ describe('ScheduleManager', () => {
       const arriveTick = first.scheduledArriveTick + first.currentDelay
 
       manager.checkArrivals(arriveTick)
-      manager.markAdmitted(first.id, arriveTick + 100)
+      manager.markAdmitted(first.id)
       expect(manager.getEntryById(first.id)!.status).toBe('admitted')
 
       const departTick = first.scheduledDepartTick + 3600
@@ -179,12 +185,12 @@ describe('ScheduleManager', () => {
       const arriveTick = first.scheduledArriveTick + first.currentDelay
 
       manager.checkArrivals(arriveTick)
-      manager.markAdmitted(first.id, arriveTick)
+      manager.markAdmitted(first.id)
 
       const earlyTick = first.scheduledDepartTick - 1800
       const spread = manager.computeDelaySpread(
         manager.getEntryById(first.id)!,
-        earlyTick
+        earlyTick,
       )
       expect(spread.delta).toBeLessThan(0)
     })
@@ -196,7 +202,7 @@ describe('ScheduleManager', () => {
       const arriveTick = first.scheduledArriveTick + first.currentDelay
 
       manager.checkArrivals(arriveTick)
-      manager.markAdmitted(first.id, arriveTick)
+      manager.markAdmitted(first.id)
       manager.markDeparted(first.id, first.scheduledDepartTick + 7200)
 
       const entry = manager.getEntryById(first.id)!
@@ -213,7 +219,7 @@ describe('ScheduleManager', () => {
       const arriveTick = first.scheduledArriveTick + first.currentDelay
 
       manager.checkArrivals(arriveTick)
-      manager.markAdmitted(first.id, arriveTick)
+      manager.markAdmitted(first.id)
       manager.markDeparted(first.id, first.scheduledDepartTick - 18000)
 
       const entry = manager.getEntryById(first.id)!
@@ -224,27 +230,28 @@ describe('ScheduleManager', () => {
 
   describe('自适应宽限', () => {
     it('连续恶化后宽限增加', () => {
-      const manager = new ScheduleManager(baseConfig, 1, 0, 0)
+      // 使用高峰配置确保有足够多的列车（2-3 分钟间隔 → 30 分钟内 10-15 趟）
+      const manager = new ScheduleManager(baseConfig, 1, 0, peakStartTimeOffset)
+      const allEntries = manager.getAllEntries()
+      expect(allEntries.length).toBeGreaterThanOrEqual(10)
 
       for (let i = 0; i < 9; i++) {
-        const entries = manager.getAllEntries()
-        const upcoming = entries.filter(e => e.status === 'upcoming')
-        if (upcoming.length === 0) break
+        const upcoming = manager.getAllEntries().filter((e) => e.status === 'upcoming')
+        expect(upcoming.length).toBeGreaterThan(0)
         const entry = upcoming[0]!
         const arriveTick = entry.scheduledArriveTick + entry.currentDelay
         manager.checkArrivals(arriveTick)
-        manager.markAdmitted(entry.id, arriveTick)
+        manager.markAdmitted(entry.id)
         manager.markDeparted(entry.id, entry.scheduledDepartTick + 36000)
       }
 
-      const remaining = manager.getAllEntries().filter(e => e.status === 'upcoming')
-      if (remaining.length > 0) {
-        const nextEntry = remaining[0]!
-        const nextArrive = nextEntry.scheduledArriveTick + nextEntry.currentDelay
-        manager.checkArrivals(nextArrive)
-        const grace = manager.getEntryById(nextEntry.id)!.reactionGraceTicks ?? 0
-        expect(grace).toBeGreaterThan(1800)
-      }
+      const remaining = manager.getAllEntries().filter((e) => e.status === 'upcoming')
+      expect(remaining.length).toBeGreaterThan(0)
+      const nextEntry = remaining[0]!
+      const nextArrive = nextEntry.scheduledArriveTick + nextEntry.currentDelay
+      manager.checkArrivals(nextArrive)
+      const grace = manager.getEntryById(nextEntry.id)!.reactionGraceTicks ?? 0
+      expect(grace).toBeGreaterThan(1800)
     })
   })
 
@@ -253,21 +260,22 @@ describe('ScheduleManager', () => {
       const multiLineConfig: ScheduleConfig = {
         ...baseConfig,
         lines: ['京沪', '沪昆'],
-        lineTrafficWeight: { '京沪': 3, '沪昆': 1 },
+        lineTrafficWeight: { 京沪: 3, 沪昆: 1 },
       }
-      const manager = new ScheduleManager(multiLineConfig, 1, 0, offPeakStartTimeOffset)
+      // 使用高峰配置确保有足够多的样本
+      const manager = new ScheduleManager(multiLineConfig, 1, 0, peakStartTimeOffset)
       const entries = manager.getAllEntries()
+
+      expect(entries.length).toBeGreaterThanOrEqual(4)
 
       for (const entry of entries) {
         expect(entry.line).toBeDefined()
         expect(['京沪', '沪昆']).toContain(entry.line)
       }
 
-      const jinghu = entries.filter(e => e.line === '京沪').length
-      const hukun = entries.filter(e => e.line === '沪昆').length
-      if (entries.length >= 4) {
-        expect(jinghu).toBeGreaterThan(hukun)
-      }
+      const jinghu = entries.filter((e) => e.line === '京沪').length
+      const hukun = entries.filter((e) => e.line === '沪昆').length
+      expect(jinghu).toBeGreaterThan(hukun)
     })
   })
 })

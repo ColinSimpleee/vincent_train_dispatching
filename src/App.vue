@@ -193,7 +193,7 @@ function loop(timestamp: number) {
         // 时刻表驱动
         if (scheduleManager) {
           scheduleManager.ensureFutureSchedule(tick.value)
-          scheduleManager.updateDelays(tick.value)
+          scheduleManager.updateDelays()
           scheduleManager.checkArrivals(tick.value)
         }
       } catch (e) {
@@ -772,7 +772,7 @@ function spawnTrainIntoMap(id: string) {
 
     // 通知 ScheduleManager 状态变更
     if (scheduleManager) {
-        scheduleManager.markAdmitted(entry.id, tick.value)
+        scheduleManager.markAdmitted(entry.id)
     }
 }
 

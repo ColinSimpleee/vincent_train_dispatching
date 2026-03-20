@@ -132,7 +132,7 @@ export class ScheduleManager {
     }
   }
 
-  updateDelays(_currentTick: number): void {
+  updateDelays(): void {
     for (const entry of this.entries) {
       if (entry.status !== 'upcoming') continue
 
@@ -174,7 +174,7 @@ export class ScheduleManager {
     return [...this.entries]
   }
 
-  markAdmitted(entryId: string, _currentTick: number): void {
+  markAdmitted(entryId: string): void {
     const entry = this.entries.find((e) => e.id === entryId)
     if (entry && entry.status === 'waiting') {
       entry.status = 'admitted'
