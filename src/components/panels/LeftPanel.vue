@@ -306,11 +306,20 @@ const allTrains = computed(() => {
 
   const uniqueIds = new Set([...queueIds, ...activeIds]);
 
-  return Array.from(uniqueIds).map(id => ({
+  const items = Array.from(uniqueIds).map(id => ({
     id,
     ...getTrainStatus(id),
     delaySpread: getDelaySpread(id)
   }));
+
+  // 按晚点增量降序排序：恶化最多的排最前
+  items.sort((a, b) => {
+    const deltaA = a.delaySpread?.delta ?? -Infinity;
+    const deltaB = b.delaySpread?.delta ?? -Infinity;
+    return deltaB - deltaA;
+  });
+
+  return items;
 });
 </script>
 

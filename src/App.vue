@@ -158,9 +158,8 @@ function processExitingTrains(): void {
             }
         }
 
-        // Check removal threshold
-        const removalThreshold = edge.length - REMOVAL_BUFFER;
-        if (train.position >= removalThreshold) {
+        // 移交后立即移除（不等跑完长出口边）
+        if (train.isHandedOver) {
             trains.splice(i, 1);
         }
     }
