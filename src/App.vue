@@ -158,9 +158,13 @@ function processExitingTrains(): void {
             }
         }
 
-        // 移交后立即移除（不等跑完长出口边）
+        // 移交后，整列车驶出屏幕再移除（handover 点 + 整列车长度 + 缓冲）
         if (train.isHandedOver) {
-            trains.splice(i, 1);
+            const fullTrainLength = getTrainHalfLength(train) * 2;
+            const removalThreshold = handoverThreshold + fullTrainLength + 200;
+            if (train.position >= removalThreshold) {
+                trains.splice(i, 1);
+            }
         }
     }
 }
