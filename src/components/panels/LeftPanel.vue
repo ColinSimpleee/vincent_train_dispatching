@@ -1,17 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { TrainPhysics, TrainModel } from '../../core/RailGraph';
-
-// Type for trains in the waiting queue
-interface QueuedTrain {
-  id: string;
-  schedule: { arriveTick: number };
-  model: TrainModel;
-}
+import type { TrainPhysics } from '../../core/RailGraph';
+import type { ScheduleEntry, DelaySpread } from '../../core/types';
+import type { ScheduleManager } from '../../core/ScheduleManager';
 
 const props = defineProps<{
-  queue: QueuedTrain[]; // Waiting trains
-  trains: TrainPhysics[]; // Active trains on map
+  queue: ScheduleEntry[];
+  trains: TrainPhysics[];
+  scheduleManager: ScheduleManager | null;
   onSelect: (id: string) => void;
   selectedId: string | null;
   gameStartTime?: { hours: number; minutes: number; seconds: number };
@@ -79,8 +75,8 @@ function isPlatformEdge(edgeId: string): boolean {
   return /t\d+/.test(edgeId);
 }
 
-function getStatusForQueuedTrain(queueTrain: QueuedTrain): TrainStatusInfo {
-  const arriveTick = queueTrain.schedule?.arriveTick ?? 0;
+function getStatusForQueuedTrain(queueTrain: ScheduleEntry): TrainStatusInfo {
+  const arriveTick = queueTrain.scheduledArriveTick ?? 0;
   return {
     status: '等待进站',
     statusColor: '#f39c12',
@@ -276,6 +272,31 @@ function getPunctuality(scheduledTick: number): PunctualityInfo {
   return { text: '准点', color: '#f1c40f', minutes: 0, isDurationMode: false };
 }
 
+function getDelaySpread(trainId: string): DelaySpread | null {
+  if (!props.scheduleManager) return null;
+  const entry = props.scheduleManager.getEntryById(trainId);
+  if (!entry || entry.status === 'upcoming') return null;
+  return props.scheduleManager.computeDelaySpread(entry, props.currentTick ?? 0);
+}
+
+function formatSpreadDelta(spread: DelaySpread): string {
+  const minutes = Math.floor(Math.abs(spread.delta) / 3600);
+  if (spread.level === 'improved') return `-${minutes}'`;
+  if (spread.level === 'worsened') return `+${minutes}'`;
+  return '';
+}
+
+function getSpreadColor(spread: DelaySpread): string {
+  if (spread.level === 'improved') return '#2ecc71';
+  if (spread.level === 'worsened') return '#e74c3c';
+  return '#f1c40f';
+}
+
+function getSpreadTriangle(spread: DelaySpread): string {
+  if (spread.level === 'worsened') return '▼';
+  return '▲';
+}
+
 // Combine all trains (queue + active)
 const allTrains = computed(() => {
   const queueIds = (props.queue || []).map(q => q?.id).filter(Boolean);
@@ -287,7 +308,8 @@ const allTrains = computed(() => {
 
   return Array.from(uniqueIds).map(id => ({
     id,
-    ...getTrainStatus(id)
+    ...getTrainStatus(id),
+    delaySpread: getDelaySpread(id)
   }));
 });
 </script>
@@ -319,6 +341,13 @@ const allTrains = computed(() => {
                :style="{ color: item.punctuality.color }"
              >
                {{ item.punctuality.text }}
+             </span>
+             <span
+               v-if="item.delaySpread"
+               class="delay-spread"
+               :style="{ color: getSpreadColor(item.delaySpread) }"
+             >
+               {{ getSpreadTriangle(item.delaySpread) }}{{ formatSpreadDelta(item.delaySpread) }}
              </span>
              <span v-if="!item.punctuality.isDurationMode" class="time-info">
                {{ item.timeLabel }}: {{ item.estimatedTime }}
@@ -431,5 +460,12 @@ h3 {
   color: #95a5a6;
   text-align: right;
   flex: 1;
+}
+
+.delay-spread {
+  font-weight: bold;
+  font-size: 11px;
+  margin-left: 4px;
+  white-space: nowrap;
 }
 </style>
