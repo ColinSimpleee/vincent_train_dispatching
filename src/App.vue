@@ -721,19 +721,19 @@ function spawnTrainIntoMap(id: string) {
         }
     } else if (map.nodes['n_L_in']) {
         // --- Small Station (Standard) ---
+        // direction 始终为 1（沿边正向移动），commitUpdates 会根据拓扑自动调整
+        direction = 1
         if (isUpbound) {
             currentEdgeId = 'e_entry_L'
-            direction = 1
             path = [`e_L_t${platformNum}`, `t${platformNum}`]
         } else {
             currentEdgeId = 'e_entry_R'
-            direction = -1
             path = [`e_R_in_t${platformNum}`, `t${platformNum}`]
         }
     } else {
         // Fallback / Hub
         currentEdgeId = isUpbound ? 'e_entry_L' : 'e_entry_R'
-        direction = isUpbound ? 1 : -1
+        direction = 1
         path = [`e_L_t${platformNum}`, `t${platformNum}`]
     }
 
