@@ -721,18 +721,14 @@ function spawnTrainIntoMap(id: string) {
         }
     } else if (map.nodes['n_L_in']) {
         // --- Small Station (Standard) ---
-        // direction 始终为 1（沿边正向移动），commitUpdates 会根据拓扑自动调整
+        // 所有列车统一从左入口进站，direction 元数据仅用于时刻表显示
+        // 双向入口需要道岔和信号配合，留待后续实现
+        currentEdgeId = 'e_entry_L'
         direction = 1
-        if (isUpbound) {
-            currentEdgeId = 'e_entry_L'
-            path = [`e_L_t${platformNum}`, `t${platformNum}`]
-        } else {
-            currentEdgeId = 'e_entry_R'
-            path = [`e_R_in_t${platformNum}`, `t${platformNum}`]
-        }
+        path = [`e_L_t${platformNum}`, `t${platformNum}`]
     } else {
         // Fallback / Hub
-        currentEdgeId = isUpbound ? 'e_entry_L' : 'e_entry_R'
+        currentEdgeId = 'e_entry_L'
         direction = 1
         path = [`e_L_t${platformNum}`, `t${platformNum}`]
     }
