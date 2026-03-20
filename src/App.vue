@@ -6,13 +6,8 @@ import RightPanel from './components/panels/RightPanel.vue'
 import StartScreen from './components/StartScreen.vue'
 import { PhysicsEngine } from './core/PhysicsEngine'
 import type { RailMap, TrainPhysics, TrainModel } from './core/RailGraph'
-
-// Type for trains in the waiting queue
-interface QueuedTrain {
-  id: string
-  schedule: { arriveTick: number }
-  model: TrainModel
-}
+import { ScheduleManager } from './core/ScheduleManager'
+import type { ScheduleEntry } from './core/types'
 
 // Type for selected train display (union of active train or queued train info)
 interface SelectedTrainDisplay {
@@ -68,14 +63,14 @@ const isPaused = ref(false)
 const showActionToast = ref(false)
 const actionToastMessage = ref('')
 
-// MVP Queue (Mock Data for Left Panel)
-// Correct calculation: 1 minute = 60 seconds × 60 ticks/second = 3600 ticks
-// Arrival times with 5-10 min intervals: 5 min, 12 min, 20 min
-const waitingQueue = reactive<QueuedTrain[]>([
-  { id: 'G9528', schedule: { arriveTick: 18000 }, model: 'CR400AF' },   // 5 minutes
-  { id: 'D1006', schedule: { arriveTick: 43200 }, model: 'CRH380A' },   // 12 minutes
-  { id: 'G284',  schedule: { arriveTick: 72000 }, model: 'CR400BF' }    // 20 minutes
-])
+// ScheduleManager 实例（在 handleStationSelect 中初始化）
+let scheduleManager: ScheduleManager | null = null
+
+// 等待队列由 ScheduleManager 驱动
+const waitingQueue = computed<ScheduleEntry[]>(() => {
+  if (!scheduleManager) return []
+  return scheduleManager.getWaitingEntries()
+})
 
 const selectedTrainId = ref<string | null>(null)
 const tick = ref(0)
@@ -93,7 +88,7 @@ const selectedTrain = computed((): TrainPhysics | SelectedTrainDisplay | null =>
   if (active) return active
 
   // Check queue - return display info for queued trains
-  const queued = waitingQueue.find(q => q.id === selectedTrainId.value)
+  const queued = waitingQueue.value.find(q => q.id === selectedTrainId.value)
   if (queued) {
       return {
           id: queued.id,
@@ -157,17 +152,16 @@ function processExitingTrains(): void {
         const handoverThreshold = HANDOVER_BASE + getTrainHalfLength(train);
         if (train.position >= handoverThreshold && !train.isHandedOver) {
             train.isHandedOver = true;
+            // 通知 ScheduleManager 出站
+            if (scheduleManager && train.scheduleEntryId) {
+                scheduleManager.markDeparted(train.scheduleEntryId, tick.value)
+            }
         }
 
         // Check removal threshold
         const removalThreshold = edge.length - REMOVAL_BUFFER;
         if (train.position >= removalThreshold) {
             trains.splice(i, 1);
-
-            const queueIndex = waitingQueue.findIndex(q => q.id === train.id);
-            if (queueIndex !== -1) {
-                waitingQueue.splice(queueIndex, 1);
-            }
         }
     }
 }
@@ -196,20 +190,11 @@ function loop(timestamp: number) {
         PhysicsEngine.update(trains, map, FIXED_STEP, tick.value)
         tick.value++ 
         
-        // Auto refill queue (Scaled with Game Time)
-        // Generate new trains 5-10 minutes in advance
-        // 1 minute = 3600 ticks, so 5-10 min = 18000-36000 ticks
-        if (waitingQueue.length < 5 && Math.random() < 0.005) {
-            const prefix = Math.random() > 0.5 ? 'G' : 'D';
-            // Rule: Rightward (Up) = Even numbers
-            const num = Math.floor(Math.random() * 4500 + 500) * 2;
-            const id = prefix + num;
-            const advanceTime = 18000 + Math.floor(Math.random() * 18000); // 5-10 minutes
-            waitingQueue.push({
-                id: id,
-                schedule: { arriveTick: tick.value + advanceTime },
-                model: (['CR400AF', 'CR400BF', 'CRH380A'] as const)[Math.floor(Math.random()*3)] ?? 'CR400AF' 
-            });
+        // 时刻表驱动
+        if (scheduleManager) {
+          scheduleManager.ensureFutureSchedule(tick.value)
+          scheduleManager.updateDelays(tick.value)
+          scheduleManager.checkArrivals(tick.value)
         }
       } catch (e) {
         console.error(e)
@@ -317,9 +302,19 @@ function handleStationSelect(config: StationConfig) {
     keyMappings.value = generateKeyMappings(map)
     console.log('[KEYBOARD] Generated mappings:', keyMappings.value)
     
+    // 初始化 ScheduleManager
+    const gst = gameStartTime.value
+    const gameStartTimeOffsetTicks = (gst.hours * 60 + gst.minutes) * 3600 + gst.seconds * 60
+    scheduleManager = new ScheduleManager(
+      config.scheduleConfig,
+      config.difficulty,
+      tick.value,
+      gameStartTimeOffsetTicks
+    )
+
     // Switch View
     view.value = 'game'
-    
+
     // Start Logic
     startSim()
 }
@@ -331,6 +326,7 @@ function goHome() {
     trains.splice(0, trains.length)
     selectedTrainId.value = null
     tick.value = 0
+    scheduleManager = null
     // Optional: Stop simulation loop, but existing logic handles 'start' view pause.
 }
 
@@ -502,7 +498,7 @@ function togglePause() {
 function selectNextTrain() {
     // Train order: queue first, then active trains (as shown in left panel)
     const allTrainIds = [
-        ...waitingQueue.map(q => q.id),
+        ...waitingQueue.value.map(q => q.id),
         ...trains.map(t => t.id)
     ]
     
@@ -523,7 +519,7 @@ function selectNextTrain() {
 function selectPreviousTrain() {
     // Train order: queue first, then active trains (as shown in left panel)
     const allTrainIds = [
-        ...waitingQueue.map(q => q.id),
+        ...waitingQueue.value.map(q => q.id),
         ...trains.map(t => t.id)
     ]
     
@@ -699,76 +695,85 @@ function handleKeyPress(event: KeyboardEvent) {
 }
 
 function spawnTrainIntoMap(id: string) {
-    const qIndex = waitingQueue.findIndex(q => q.id === id)
-    const platformNum = Math.floor(Math.random() * 4) + 1 // 1..4
-    
+    const entry = waitingQueue.value.find(q => q.id === id)
+    if (!entry) return
+
+    const platformNum = Math.floor(Math.random() * 4) + 1
+
     let path: string[] = []
     let currentEdgeId = ''
-    
-    // Determine Logic based on Map Type (Heuristic)
+    let direction: 1 | -1 = 1
+
+    // 根据列车方向选择入口
+    const isUpbound = entry.direction === 'up' // up=向右=从左入口进
+
     if (map.nodes['n_sw_1']) {
-        // --- Terminal (Ladder) ---
-        currentEdgeId = 'e_in';
-        // Path from Throat (sw1) to Platform End
-        // findPath uses Node IDs. e_in goes to n_sw_1.
-        const targetNode = `n_p${platformNum}_end`;
-        // We start pathfinding from n_sw_1
-        const route = findPath('n_sw_1', targetNode, map);
+        // --- Terminal (Ladder) --- 终端站只有一个入口
+        currentEdgeId = 'e_in'
+        direction = 1
+        const targetNode = `n_p${platformNum}_end`
+        const route = findPath('n_sw_1', targetNode, map)
         if (route.length > 0) {
-            path = [currentEdgeId, ...route];
+            path = [currentEdgeId, ...route]
         } else {
-            console.error("No path found to", targetNode);
-            return;
+            console.error("No path found to", targetNode)
+            return
         }
     } else if (map.nodes['n_L_in']) {
         // --- Small Station (Standard) ---
-        // Existing Hardcoded Logic (Verified working)
-        currentEdgeId = 'e_entry_L';
-        path = [`e_L_t${platformNum}`, `t${platformNum}`];
-        // BFS Alternative:
-        // const route = findPath('n_sw_L', `n_p${platformNum}_end`, map);
-        // path = [currentEdgeId, ...route];
+        if (isUpbound) {
+            currentEdgeId = 'e_entry_L'
+            direction = 1
+            path = [`e_L_t${platformNum}`, `t${platformNum}`]
+        } else {
+            currentEdgeId = 'e_entry_R'
+            direction = -1
+            path = [`e_R_in_t${platformNum}`, `t${platformNum}`]
+        }
     } else {
-        // Fallback or Hub
-        currentEdgeId = 'e_entry_L'
+        // Fallback / Hub
+        currentEdgeId = isUpbound ? 'e_entry_L' : 'e_entry_R'
+        direction = isUpbound ? 1 : -1
         path = [`e_L_t${platformNum}`, `t${platformNum}`]
     }
-        
+
     const newTrain: TrainPhysics = {
         id: id,
         currentEdgeId: currentEdgeId,
         position: 0,
         speed: 60,
         state: 'moving',
-        direction: 1, // Default forward movement
+        direction: direction,
         path: path,
-        visitedPath: [], // Initialize empty visited path for tail rendering
-        modelType: waitingQueue[qIndex]?.model ?? 'CR400AF',
+        visitedPath: [],
+        modelType: entry.model,
         isCoupled: Math.random() < 0.2,
-        scheduledArriveTick: waitingQueue[qIndex]?.schedule?.arriveTick
+        scheduledArriveTick: entry.scheduledArriveTick,
+        scheduleEntryId: entry.id,
     }
 
-    const spawnEdge = map.edges[currentEdgeId];
+    const spawnEdge = map.edges[currentEdgeId]
     if (!spawnEdge) {
-         console.error("Invalid spawn edge", currentEdgeId);
-         return;
+        console.error("Invalid spawn edge", currentEdgeId)
+        return
     }
 
-    // SPAWN SAFETY CHECK (Ghost Mode)
-    // Prevent spawning if another train is physically blocking the entry point (0-300px).
+    // SPAWN SAFETY CHECK
     const isBlocked = trains.some(t =>
         t.currentEdgeId === currentEdgeId && t.position < 300
-    );
-
+    )
     if (isBlocked) {
-        alert("入口拥堵！前车尚未驶离安全区 (Wait for clear entry)");
-        return;
+        alert("入口拥堵！前车尚未驶离安全区")
+        return
     }
 
-    spawnEdge.occupiedBy = newTrain.id;
-    trains.push(newTrain);
-    
-    if (qIndex !== -1) waitingQueue.splice(qIndex, 1) 
+    spawnEdge.occupiedBy = newTrain.id
+    trains.push(newTrain)
+
+    // 通知 ScheduleManager 状态变更
+    if (scheduleManager) {
+        scheduleManager.markAdmitted(entry.id, tick.value)
+    }
 }
 
 // --- Lifecycle Hooks ---
@@ -792,13 +797,14 @@ onUnmounted(() => {
   <div class="app-layout" v-if="view === 'game'">
     <!-- Left -->
     <aside class="layout-side">
-        <LeftPanel 
-            :queue="waitingQueue" 
+        <LeftPanel
+            :queue="waitingQueue"
             :trains="trains"
             :selectedId="selectedTrainId"
             :onSelect="handleSelect"
             :gameStartTime="gameStartTime"
             :currentTick="tick"
+            :schedule-manager="scheduleManager"
         />
     </aside>
 
