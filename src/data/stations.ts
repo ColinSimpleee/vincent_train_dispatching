@@ -1,12 +1,14 @@
 import type { RailMap } from '../core/RailGraph';
+import type { ScheduleConfig } from '../core/types';
 
 export interface StationConfig {
     id: string;
     name: string;
     description: string;
-    difficulty: number; // 1-5 stars
+    difficulty: number;
     type: 'small' | 'hub' | 'terminal';
     mapData: RailMap;
+    scheduleConfig: ScheduleConfig;
 }
 
 // 1. 小站 (Teaching Station) - Double Line Through, 2 Island Platforms
@@ -16,6 +18,12 @@ export const stationSmall: StationConfig = {
     description: '基础的四站台车站。适合练习基本的进路控制与信号闭塞。',
     difficulty: 1,
     type: 'small',
+    scheduleConfig: {
+        peakIntervalRange: [4, 6],
+        offPeakIntervalRange: [8, 12],
+        peakWindows: [[420, 540], [1020, 1140]],
+        directionRatio: 0.5,
+    },
     mapData: {
         nodes: {
             // Left Throat
@@ -86,7 +94,15 @@ export const stationHub: StationConfig = {
     description: '复杂的8股道枢纽（目前暂用基础地图）。拥有极高的车流量。需精确控制信号以防级联晚点。',
     difficulty: 4,
     type: 'hub',
-    mapData: { ...stationSmall.mapData } 
+    scheduleConfig: {
+        peakIntervalRange: [2, 3],
+        offPeakIntervalRange: [4, 6],
+        peakWindows: [[420, 540], [1020, 1140]],
+        directionRatio: 0.5,
+        lines: ['京沪', '沪昆', '沪宁城际'],
+        lineTrafficWeight: { '京沪': 3, '沪昆': 2, '沪宁城际': 1 },
+    },
+    mapData: { ...stationSmall.mapData }
 };
 
 export const stationTerminal: StationConfig = {
@@ -95,6 +111,12 @@ export const stationTerminal: StationConfig = {
     description: '所有列车在此折返。需利用“换向”指令将列车调度至出站线路。',
     difficulty: 3,
     type: 'terminal',
+    scheduleConfig: {
+        peakIntervalRange: [3, 5],
+        offPeakIntervalRange: [6, 10],
+        peakWindows: [[420, 540], [1020, 1140]],
+        directionRatio: 0.6,
+    },
     mapData: {
         nodes: {
             // Entry/Exit
