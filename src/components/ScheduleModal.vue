@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import '@fontsource/exo-2/800-italic.css'
 import type { ScheduleEntry, DelaySpread, DispatchLogEntry } from '../core/types'
 import { SPEED_OPTIONS, SPREAD_THRESHOLD, DISPATCH_EVENT_LABELS } from '../core/constants'
@@ -80,6 +80,30 @@ onMounted(() => {
 
 onUnmounted(() => {
   resizeObserver?.disconnect()
+  window.removeEventListener('resize', updateScale)
+})
+
+// --- 等比缩放 ---
+const DESIGN_W = 2560
+const DESIGN_H = 1432
+const modalScale = ref(1)
+
+function updateScale() {
+  const sw = window.innerWidth / DESIGN_W
+  const sh = window.innerHeight / DESIGN_H
+  modalScale.value = Math.min(sw, sh)
+}
+
+watch(
+  () => props.visible,
+  (v) => {
+    if (v) updateScale()
+  },
+)
+
+onMounted(() => {
+  updateScale()
+  window.addEventListener('resize', updateScale)
 })
 
 const rowsPerPage = computed(() =>
@@ -245,6 +269,7 @@ function delayColor(delayTicks: number): string {
       <div
         class="modal-container"
         :class="{ 'hover-outside': isMouseOutside }"
+        :style="{ transform: `scale(${modalScale})` }"
         @mouseenter="onContainerEnter"
         @mouseleave="onContainerLeave"
       >
@@ -389,6 +414,8 @@ function delayColor(delayTicks: number): string {
 </template>
 
 <style scoped>
+/* 基准设计尺寸: 2560 x 1432，运行时通过 transform: scale() 等比缩放 */
+
 .modal-container,
 .modal-container * {
   font-family: 'Exo 2', 'Inter', 'Consolas', sans-serif;
@@ -396,6 +423,7 @@ function delayColor(delayTicks: number): string {
   font-style: italic;
 }
 
+/* 遮罩层 */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -407,37 +435,36 @@ function delayColor(delayTicks: number): string {
   backdrop-filter: blur(8px);
 }
 
+/* 弹窗主体 — 固定像素尺寸，由 JS scale 缩放 */
 .modal-container {
   position: relative;
-  width: 75vw;
-  max-width: 1935px;
-  height: 78vh;
-  max-height: 1125px;
+  width: 1935px;
+  height: 1125px;
   background: linear-gradient(135deg, #2a2a4a 0%, #6b6baa 100%);
-  border-radius: 6vw;
-  padding: 3vh 2.5vw;
+  border-radius: 154px;
+  padding: 40px 50px;
   display: flex;
   flex-direction: column;
   transition: border-top-right-radius 0.2s ease;
+  transform-origin: center center;
 }
 
 .modal-container.hover-outside {
-  border-top-right-radius: 1.2vw;
+  border-top-right-radius: 30px;
 }
 
+/* 关闭按钮 */
 .close-btn {
   position: absolute;
-  top: -0.5vw;
-  right: -0.5vw;
-  width: 2vw;
-  height: 2vw;
-  min-width: 30px;
-  min-height: 30px;
+  top: -10px;
+  right: -10px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   background: #ff3333;
   color: white;
   border: none;
-  font-size: 1.5vw;
+  font-size: 28px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -449,28 +476,30 @@ function delayColor(delayTicks: number): string {
   background: #cc0000;
 }
 
+/* 主区域 flex */
 .main-area {
   display: flex;
-  gap: 2vw;
+  gap: 40px;
   flex: 1;
   min-height: 0;
 }
 
+/* ====== 左侧时刻表 ====== */
 .schedule-section {
   flex: 1;
   display: flex;
   flex-direction: column;
   background: #e0dad9;
-  border-radius: 3.1vw;
-  padding: 2vh 2vw;
+  border-radius: 80px;
+  padding: 30px 40px;
   min-width: 0;
 }
 
 .modal-title {
   text-align: center;
-  font-size: clamp(20px, 1.4vw, 36px);
+  font-size: 36px;
   color: #000;
-  margin: 0 0 1.5vh 0;
+  margin: 0 0 20px 0;
 }
 
 .table-container {
@@ -482,8 +511,8 @@ function delayColor(delayTicks: number): string {
 
 .table-wrapper {
   flex: 1;
-  border: 3.5px solid #4a6fa5;
-  border-radius: 2vw;
+  border: 7px solid #4a6fa5;
+  border-radius: 50px;
   overflow: hidden;
   min-height: 0;
 }
@@ -500,16 +529,16 @@ thead tr {
 
 th {
   color: #e0dad9;
-  font-size: clamp(10px, 0.65vw, 16px);
-  padding: 0.6vh 0.5vw;
+  font-size: 16px;
+  padding: 10px 12px;
   text-align: left;
   white-space: nowrap;
 }
 
 td {
   color: #000;
-  font-size: clamp(10px, 0.65vw, 16px);
-  padding: 0.4vh 0.5vw;
+  font-size: 16px;
+  padding: 8px 12px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.08);
   white-space: nowrap;
   overflow: hidden;
@@ -519,28 +548,29 @@ td {
 .empty-row {
   text-align: center;
   color: #999;
-  padding: 2vh 0;
+  padding: 30px 0;
 }
 
 .spread-indicator {
-  margin-left: 0.3vw;
-  font-size: clamp(9px, 0.55vw, 14px);
+  margin-left: 6px;
+  font-size: 14px;
 }
 
+/* 分页 */
 .pagination {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 1.5vw;
-  padding: 0.8vh 0;
+  gap: 30px;
+  padding: 10px 0;
   background: linear-gradient(90deg, #3c3952, #86829f);
   border-radius: 100px;
-  margin-top: 0.8vh;
+  margin-top: 10px;
 }
 
 .page-arrow {
   color: #e0dad9;
-  font-size: clamp(12px, 0.65vw, 16px);
+  font-size: 16px;
   cursor: pointer;
   user-select: none;
 }
@@ -551,39 +581,43 @@ td {
 
 .page-info {
   color: #e0dad9;
-  font-size: clamp(10px, 0.65vw, 16px);
+  font-size: 16px;
 }
 
+/* ====== 右侧面板 ====== */
 .side-panel {
-  width: 18%;
-  min-width: 160px;
+  width: 344px;
   display: flex;
   flex-direction: column;
-  gap: 1.5vh;
+  gap: 20px;
 }
 
+/* 游戏时间 */
 .game-time-box {
   background: #e0dad9;
-  border-radius: 3.1vw;
-  padding: 2vh 1vw;
-  text-align: center;
+  border-radius: 80px;
+  height: 165px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .time-display {
-  font-size: clamp(20px, 1.5vw, 38px);
+  font-size: 38px;
   color: #000;
 }
 
+/* 倍速 */
 .speed-control {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 1vw;
+  gap: 20px;
 }
 
 .speed-arrow {
   color: #e0dad9;
-  font-size: clamp(20px, 1.4vw, 36px);
+  font-size: 36px;
   cursor: pointer;
   user-select: none;
 }
@@ -594,14 +628,15 @@ td {
 
 .speed-label {
   color: #e0dad9;
-  font-size: clamp(16px, 1vw, 26px);
+  font-size: 26px;
 }
 
+/* 自定义窗口 */
 .custom-window {
   flex: 1;
   background: #e0dad9;
-  border-radius: 3.1vw;
-  padding: 1.5vh 1.2vw;
+  border-radius: 80px;
+  padding: 25px 25px;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -609,9 +644,9 @@ td {
 
 .custom-title {
   text-align: center;
-  font-size: clamp(14px, 0.95vw, 24px);
+  font-size: 24px;
   color: #000;
-  margin: 0 0 1vh 0;
+  margin: 0 0 15px 0;
 }
 
 .tab-content {
@@ -620,29 +655,31 @@ td {
   min-height: 0;
 }
 
+/* 调度日志 */
 .log-entry {
   display: flex;
-  gap: 0.5vw;
-  font-size: clamp(9px, 0.55vw, 14px);
+  gap: 10px;
+  font-size: 16px;
   color: #000;
-  padding: 0.3vh 0;
+  padding: 4px 0;
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .log-time {
-  min-width: 4.5em;
+  min-width: 90px;
 }
 .log-train {
-  min-width: 3.5em;
+  min-width: 60px;
 }
 
+/* 晚点扩散警告 */
 .warning-group {
-  margin-bottom: 1vh;
+  margin-bottom: 12px;
 }
 
 .warning-header {
-  font-size: clamp(9px, 0.52vw, 13px);
-  margin-bottom: 0.4vh;
+  font-size: 13px;
+  margin-bottom: 6px;
 }
 .warning-header.worsened {
   color: #db2020;
@@ -653,10 +690,10 @@ td {
 
 .warning-item {
   display: flex;
-  gap: 0.4vw;
-  font-size: clamp(9px, 0.55vw, 14px);
+  gap: 8px;
+  font-size: 14px;
   color: #000;
-  padding: 0.2vh 0;
+  padding: 3px 0;
   flex-wrap: wrap;
 }
 
@@ -671,31 +708,33 @@ td {
 .empty-tab {
   text-align: center;
   color: #999;
-  padding: 2vh 0;
-  font-size: clamp(10px, 0.6vw, 14px);
+  padding: 30px 0;
+  font-size: 16px;
 }
 
+/* 标签切换 */
 .tab-switcher {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.8vw;
-  padding-top: 0.5vh;
+  gap: 15px;
+  padding-top: 8px;
   border-top: 1px solid rgba(0, 0, 0, 0.1);
   margin-top: auto;
 }
 
 .tab-arrow {
   cursor: pointer;
-  font-size: clamp(12px, 0.65vw, 16px);
+  font-size: 16px;
   color: #000;
   user-select: none;
 }
 .tab-name {
-  font-size: clamp(10px, 0.65vw, 16px);
+  font-size: 16px;
   color: #000;
 }
 
+/* ====== 动画 ====== */
 .modal-enter-active {
   transition: all 1.5s ease-out;
 }
@@ -703,11 +742,11 @@ td {
   transition: all 1.5s ease-in;
 }
 .modal-enter-from {
-  transform: translateY(100vh) scale(0.3);
+  transform: translateY(100vh) scale(0.3) !important;
   opacity: 0;
 }
 .modal-leave-to {
-  transform: translateY(100vh) scale(0.3);
+  transform: translateY(100vh) scale(0.3) !important;
   opacity: 0;
 }
 </style>
