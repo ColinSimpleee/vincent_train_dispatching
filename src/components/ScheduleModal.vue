@@ -440,9 +440,9 @@ function delayColor(delayTicks: number): string {
   position: relative;
   width: 1935px;
   height: 1125px;
-  background: linear-gradient(135deg, #2a2a4a 0%, #6b6baa 100%);
+  background: linear-gradient(to bottom, #302f39 27%, #86829f 99%);
   border-radius: 154px;
-  padding: 40px 50px;
+  padding: 90px;
   display: flex;
   flex-direction: column;
   transition: border-top-right-radius 0.2s ease;
@@ -479,7 +479,7 @@ function delayColor(delayTicks: number): string {
 /* 主区域 flex */
 .main-area {
   display: flex;
-  gap: 40px;
+  gap: 96px;
   flex: 1;
   min-height: 0;
 }
@@ -491,7 +491,7 @@ function delayColor(delayTicks: number): string {
   flex-direction: column;
   background: #e0dad9;
   border-radius: 80px;
-  padding: 30px 40px;
+  padding: 60px 50px 25px;
   min-width: 0;
 }
 
@@ -511,7 +511,7 @@ function delayColor(delayTicks: number): string {
 
 .table-wrapper {
   flex: 1;
-  border: 7px solid #4a6fa5;
+  border: 7px solid #000;
   border-radius: 50px;
   overflow: hidden;
   min-height: 0;
@@ -589,7 +589,7 @@ td {
   width: 344px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
 }
 
 /* 游戏时间 */
