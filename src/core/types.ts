@@ -59,3 +59,14 @@ export interface DelaySpread {
   delta: number
   level: 'improved' | 'neutral' | 'worsened'
 }
+
+// --- 调度日志 ---
+
+export type DispatchEventType = 'admit' | 'depart' | 'stop' | 'platform_stop' | 'handover'
+
+export interface DispatchLogEntry {
+  tick: number
+  gameTime: string
+  trainId: string
+  event: DispatchEventType
+}

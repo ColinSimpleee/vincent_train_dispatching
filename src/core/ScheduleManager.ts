@@ -1,12 +1,11 @@
 import type { TrainModel } from './RailGraph'
 import type { ScheduleConfig, ScheduleEntry, DelaySpread } from './types'
-import { TICKS_PER_MINUTE, DWELL_TIME_MIN, DWELL_TIME_MAX } from './constants'
+import { TICKS_PER_MINUTE, DWELL_TIME_MIN, DWELL_TIME_MAX, SPREAD_THRESHOLD } from './constants'
 
 const FUTURE_WINDOW = 30 * TICKS_PER_MINUTE // 30 分钟 = 108000 ticks
 const DELAY_LIMIT = 36000 // ±10 分钟
 const DELAY_DRIFT_PROBABILITY = 0.002
 const DELAY_DRIFT_AMPLITUDE = 30
-const SPREAD_THRESHOLD = 1800 // 30 秒
 const MAX_DEPARTED_KEPT = 50
 const INITIAL_WAITING_COUNT = 3
 const INITIAL_GRACE_TICKS = 5400 // 90 秒特例宽限
@@ -95,9 +94,7 @@ export class ScheduleManager {
       ([start, end]) => gameMinute >= start && gameMinute < end,
     )
 
-    const [min, max] = isPeak
-      ? this.config.peakIntervalRange
-      : this.config.offPeakIntervalRange
+    const [min, max] = isPeak ? this.config.peakIntervalRange : this.config.offPeakIntervalRange
 
     return min + Math.random() * (max - min)
   }
@@ -123,9 +120,7 @@ export class ScheduleManager {
       DWELL_TIME_MIN + Math.floor(Math.random() * (DWELL_TIME_MAX - DWELL_TIME_MIN + 1))
 
     const maxInitialDelay = this.difficulty * 1800
-    const initialDelay = Math.floor(
-      -maxInitialDelay + Math.random() * 2 * maxInitialDelay,
-    )
+    const initialDelay = Math.floor(-maxInitialDelay + Math.random() * 2 * maxInitialDelay)
 
     const line = this.assignLine()
 
@@ -147,10 +142,7 @@ export class ScheduleManager {
     if (!lines || lines.length === 0) return undefined
 
     if (lineTrafficWeight) {
-      const totalWeight = Object.values(lineTrafficWeight).reduce(
-        (a, b) => a + b,
-        0,
-      )
+      const totalWeight = Object.values(lineTrafficWeight).reduce((a, b) => a + b, 0)
       let r = Math.random() * totalWeight
       for (const line of lines) {
         r -= lineTrafficWeight[line] ?? 1
@@ -173,9 +165,7 @@ export class ScheduleManager {
       if (entry.status !== 'upcoming') continue
 
       if (Math.random() < DELAY_DRIFT_PROBABILITY) {
-        const drift = Math.floor(
-          (Math.random() * 2 - 1) * DELAY_DRIFT_AMPLITUDE * this.difficulty,
-        )
+        const drift = Math.floor((Math.random() * 2 - 1) * DELAY_DRIFT_AMPLITUDE * this.difficulty)
         entry.currentDelay = Math.max(
           -DELAY_LIMIT,
           Math.min(DELAY_LIMIT, entry.currentDelay + drift),
@@ -274,10 +264,7 @@ export class ScheduleManager {
     return grace
   }
 
-  private updateDifficultyCounter(
-    entry: ScheduleEntry,
-    currentTick: number,
-  ): void {
+  private updateDifficultyCounter(entry: ScheduleEntry, currentTick: number): void {
     const spread = this.computeDelaySpread(entry, currentTick)
     if (spread.delta > 0) {
       this.difficultyCounter++
