@@ -15,7 +15,20 @@
       "Bash(gh api:*)",
       "Bash(npm run type-check:*)",
       "Bash(npm run lint:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(find /e/列车调度游戏 -type f \\\\\\(-name *.pdf -o -name *需求* -o -name *文档* \\\\\\))",
+      "Bash(file:*)",
+      "Bash(cd /tmp)",
+      "Bash(unzip -q /e/列车调度游戏/新需求文档/时刻表弹窗开发文档_v2.docx -d docx_extracted)",
+      "Bash(grep -r \"arrivalTick\\\\|scheduledArriveTick\\\\|stopDuration\" /e/列车调度游戏/src --include=*.ts --include=*.vue)",
+      "Bash(xargs grep:*)",
+      "Bash(bash \"C:\\\\Users\\\\it-si\\\\.claude\\\\plugins\\\\cache\\\\claude-plugins-official\\\\superpowers\\\\5.0.5\\\\scripts\\\\start-server.sh\" --project-dir \"E:\\\\列车调度游戏\")",
+      "Bash(ls /tmp/brainstorm-*)",
+      "Bash(find /tmp -maxdepth 2 -name \".server-info\")",
+      "Bash(bash \"C:/Users/it-si/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.5/skills/brainstorming/scripts/start-server.sh\" --project-dir \"E:/列车调度游戏\")",
+      "Bash(npx vue-tsc:*)",
+      "Bash(npx vitest:*)",
+      "Bash(npx tsx:*)"
     ]
   }
 }

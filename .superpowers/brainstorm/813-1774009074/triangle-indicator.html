@@ -1,0 +1,77 @@
+<h2>三角形晚点扩散指示器 — 样式方案</h2>
+<p class="subtitle">显示在左侧面板列车列表的准点文字后面</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>纯三角形（简洁）</h3>
+      <div style="background:#1a1a2e;padding:16px 20px;border-radius:8px;font-family:monospace;font-size:14px;margin:8px 0;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <span style="color:#f1c40f;">准点</span>
+          <span style="color:#2ecc71;font-size:16px;">▲</span>
+          <span style="color:#666;font-size:11px;">← 晚点改善</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <span style="color:#e74c3c;">晚点 3'</span>
+          <span style="color:#e74c3c;font-size:16px;">▼</span>
+          <span style="color:#666;font-size:11px;">← 晚点扩散</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="color:#f1c40f;">晚点 1'</span>
+          <span style="color:#f1c40f;font-size:16px;">—</span>
+          <span style="color:#666;font-size:11px;">← 无明显变化</span>
+        </div>
+      </div>
+      <p>最简洁，只用颜色和方向传达信息。绿色▲=改善，红色▼=扩散，黄色—=持平</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>三角形 + 数值（信息丰富）</h3>
+      <div style="background:#1a1a2e;padding:16px 20px;border-radius:8px;font-family:monospace;font-size:14px;margin:8px 0;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <span style="color:#f1c40f;">准点</span>
+          <span style="color:#2ecc71;font-size:16px;">▲</span>
+          <span style="color:#2ecc71;font-size:12px;">-2'</span>
+          <span style="color:#666;font-size:11px;">← 缩短了2分钟晚点</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <span style="color:#e74c3c;">晚点 3'</span>
+          <span style="color:#e74c3c;font-size:16px;">▼</span>
+          <span style="color:#e74c3c;font-size:12px;">+2'</span>
+          <span style="color:#666;font-size:11px;">← 增加了2分钟晚点</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="color:#f1c40f;">晚点 1'</span>
+          <span style="color:#f1c40f;font-size:16px;">—</span>
+          <span style="color:#f1c40f;font-size:12px;">0'</span>
+          <span style="color:#666;font-size:11px;">← 无变化</span>
+        </div>
+      </div>
+      <p>三角形后附带具体变化量，玩家能看到自己改善/恶化了多少分钟</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>彩色三角形 + tooltip 悬浮详情</h3>
+      <div style="background:#1a1a2e;padding:16px 20px;border-radius:8px;font-family:monospace;font-size:14px;margin:8px 0;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <span style="color:#f1c40f;">准点</span>
+          <span style="color:#2ecc71;font-size:16px;">▲</span>
+          <span style="color:#666;font-size:11px;">← 悬浮显示: "交接时晚点5' → 当前准点，改善5'"</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <span style="color:#e74c3c;">晚点 3'</span>
+          <span style="color:#e74c3c;font-size:16px;">▼</span>
+          <span style="color:#666;font-size:11px;">← 悬浮显示: "交接时晚点1' → 当前晚点3'，扩散2'"</span>
+        </div>
+      </div>
+      <p>界面保持简洁（只有三角形），鼠标悬浮时展示完整的交接前后对比</p>
+    </div>
+  </div>
+</div>

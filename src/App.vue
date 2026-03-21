@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, shallowRef, reactive, computed, onMounted, onUnmounted } from 'vue'
 import GameCanvas from './components/GameCanvas.vue'
 import LeftPanel from './components/panels/LeftPanel.vue'
 import RightPanel from './components/panels/RightPanel.vue'
@@ -64,12 +64,16 @@ const showActionToast = ref(false)
 const actionToastMessage = ref('')
 
 // ScheduleManager 实例（在 handleStationSelect 中初始化）
-let scheduleManager: ScheduleManager | null = null
+// 使用 shallowRef 确保 Vue 能追踪引用变化，驱动 waitingQueue computed 更新
+const scheduleManager = shallowRef<ScheduleManager | null>(null)
 
 // 等待队列由 ScheduleManager 驱动
+// 依赖 scheduleManager (shallowRef) + tick (ref) 来触发重新求值
 const waitingQueue = computed<ScheduleEntry[]>(() => {
-  if (!scheduleManager) return []
-  return scheduleManager.getWaitingEntries()
+  // tick 作为响应式依赖，确保每 tick 重新获取最新等待列表
+  void tick.value
+  if (!scheduleManager.value) return []
+  return scheduleManager.value.getWaitingEntries()
 })
 
 const selectedTrainId = ref<string | null>(null)
@@ -153,8 +157,8 @@ function processExitingTrains(): void {
         if (train.position >= handoverThreshold && !train.isHandedOver) {
             train.isHandedOver = true;
             // 通知 ScheduleManager 出站
-            if (scheduleManager && train.scheduleEntryId) {
-                scheduleManager.markDeparted(train.scheduleEntryId, tick.value)
+            if (scheduleManager.value && train.scheduleEntryId) {
+                scheduleManager.value.markDeparted(train.scheduleEntryId, tick.value)
             }
         }
 
@@ -194,10 +198,10 @@ function loop(timestamp: number) {
         tick.value++ 
         
         // 时刻表驱动
-        if (scheduleManager) {
-          scheduleManager.ensureFutureSchedule(tick.value)
-          scheduleManager.updateDelays()
-          scheduleManager.checkArrivals(tick.value)
+        if (scheduleManager.value) {
+          scheduleManager.value.ensureFutureSchedule(tick.value)
+          scheduleManager.value.updateDelays()
+          scheduleManager.value.checkArrivals(tick.value)
         }
       } catch (e) {
         console.error(e)
@@ -308,7 +312,7 @@ function handleStationSelect(config: StationConfig) {
     // 初始化 ScheduleManager
     const gst = gameStartTime.value
     const gameStartTimeOffsetTicks = (gst.hours * 60 + gst.minutes) * 3600 + gst.seconds * 60
-    scheduleManager = new ScheduleManager(
+    scheduleManager.value = new ScheduleManager(
       config.scheduleConfig,
       config.difficulty,
       tick.value,
@@ -329,7 +333,7 @@ function goHome() {
     trains.splice(0, trains.length)
     selectedTrainId.value = null
     tick.value = 0
-    scheduleManager = null
+    scheduleManager.value = null
     // Optional: Stop simulation loop, but existing logic handles 'start' view pause.
 }
 
@@ -770,8 +774,8 @@ function spawnTrainIntoMap(id: string) {
     trains.push(newTrain)
 
     // 通知 ScheduleManager 状态变更
-    if (scheduleManager) {
-        scheduleManager.markAdmitted(entry.id)
+    if (scheduleManager.value) {
+        scheduleManager.value.markAdmitted(entry.id)
     }
 }
 
