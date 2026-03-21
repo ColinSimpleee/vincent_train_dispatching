@@ -1,79 +1,77 @@
 <script setup lang="ts">
-import type { TrainPhysics } from '../../core/RailGraph';
-import type { SelectedTrainDisplay, TrainAction } from '../../core/types';
+import type { TrainPhysics } from '../../core/RailGraph'
+import type { SelectedTrainDisplay, TrainAction } from '../../core/types'
 
 defineProps<{
-  gameTime: string;
-  selectedTrain: TrainPhysics | SelectedTrainDisplay | null;
-  onAction: (action: TrainAction) => void;
-  gameSpeed: number;
-  onSpeedChange: (s: number) => void;
-  keyboardMode: boolean;
-}>();
+  gameTime: string
+  selectedTrain: TrainPhysics | SelectedTrainDisplay | null
+  onAction: (action: TrainAction) => void
+  gameSpeed: number
+  onSpeedChange: (s: number) => void
+  keyboardMode: boolean
+}>()
 </script>
 
 <template>
   <div class="panel-right">
     <!-- Clock Module -->
     <div class="module clock">
-       <div class="label">当前时刻</div>
-       <div class="digital">{{ gameTime }}</div>
+      <div class="label">当前时刻</div>
+      <div class="digital">{{ gameTime }}</div>
     </div>
 
     <!-- Info Module -->
     <div class="module info" v-if="selectedTrain">
-       <div class="id-card">
-          <div class="model-row">{{ selectedTrain.modelType || 'Unknown' }}</div>
-          <div class="train-big">{{ selectedTrain.id }}</div>
-       </div>
-       
-       <div class="prop-row">
-         <span>状态</span>
-         <span class="val">{{ selectedTrain.state || 'WAITING' }}</span>
-       </div>
-       <div class="prop-row">
-         <span>位置</span>
-         <span class="val">{{ selectedTrain.currentEdgeId || 'N/A' }}</span>
-       </div>
-       <div class="prop-row">
-         <span>速度</span>
-         <span class="val">{{ selectedTrain.speed }} km/h</span>
-       </div>
+      <div class="id-card">
+        <div class="model-row">{{ selectedTrain.modelType || 'Unknown' }}</div>
+        <div class="train-big">{{ selectedTrain.id }}</div>
+      </div>
+
+      <div class="prop-row">
+        <span>状态</span>
+        <span class="val">{{ selectedTrain.state || 'WAITING' }}</span>
+      </div>
+      <div class="prop-row">
+        <span>位置</span>
+        <span class="val">{{ selectedTrain.currentEdgeId || 'N/A' }}</span>
+      </div>
+      <div class="prop-row">
+        <span>速度</span>
+        <span class="val">{{ selectedTrain.speed }} km/h</span>
+      </div>
     </div>
-    <div class="module empty" v-else>
-       未选择列车
-    </div>
+    <div class="module empty" v-else>未选择列车</div>
 
     <!-- Controls Module - Only show when train is selected -->
     <div class="module controls" v-if="selectedTrain">
-       <div class="label">调度指令</div>
-       <div class="btn-grid">
-         <button class="btn primary" @click="onAction('ADMIT')">
-           允许进站<span v-if="keyboardMode" class="shortcut-hint">(Tab)</span>
-         </button>
-         <button class="btn success" @click="onAction('DEPART')">
-           发车信号<span v-if="keyboardMode" class="shortcut-hint">(Shift+G)</span>
-         </button>
-         <button class="btn danger" @click="onAction('STOP')">
-           紧急停车<span v-if="keyboardMode" class="shortcut-hint">(Shift+A)</span>
-         </button>
-       </div>
+      <div class="label">调度指令</div>
+      <div class="btn-grid">
+        <button class="btn primary" @click="onAction('ADMIT')">
+          允许进站<span v-if="keyboardMode" class="shortcut-hint">(Tab)</span>
+        </button>
+        <button class="btn success" @click="onAction('DEPART')">
+          发车信号<span v-if="keyboardMode" class="shortcut-hint">(Shift+G)</span>
+        </button>
+        <button class="btn danger" @click="onAction('STOP')">
+          紧急停车<span v-if="keyboardMode" class="shortcut-hint">(Shift+A)</span>
+        </button>
+      </div>
     </div>
 
     <!-- Speed Module -->
     <div class="module speed-control">
-       <div class="label">运行倍速</div>
-       <div class="btn-grid row">
-         <button 
-            v-for="s in [1, 2, 5, 10]" 
-            :key="s"
-            class="btn speed-btn"
-            :class="{ active: gameSpeed === s }"
-            @click="onSpeedChange(s)"
-         >
-           {{ s }}x
-         </button>
-       </div>
+      <div class="label">运行倍速</div>
+      <div class="btn-grid row">
+        <button
+          v-for="s in [0, 1, 2, 5, 10]"
+          :key="s"
+          class="btn speed-btn"
+          :class="{ active: gameSpeed === s }"
+          @click="onSpeedChange(s)"
+        >
+          {{ s === 0 ? '||' : s + 'x' }}
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -132,7 +130,10 @@ defineProps<{
   padding-bottom: 2px;
 }
 
-.val { font-family: monospace; color: #ecf0f1; }
+.val {
+  font-family: monospace;
+  color: #ecf0f1;
+}
 
 .btn-grid {
   display: flex;
@@ -153,11 +154,19 @@ defineProps<{
   color: #fff;
   transition: filter 0.2s;
 }
-.btn:hover { filter: brightness(1.2); }
+.btn:hover {
+  filter: brightness(1.2);
+}
 
-.primary { background: #2980b9; }
-.success { background: #27ae60; }
-.danger { background: #c0392b; }
+.primary {
+  background: #2980b9;
+}
+.success {
+  background: #27ae60;
+}
+.danger {
+  background: #c0392b;
+}
 
 .speed-btn {
   flex: 1;

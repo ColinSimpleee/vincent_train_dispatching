@@ -7,7 +7,12 @@ import StartScreen from './components/StartScreen.vue'
 import { PhysicsEngine } from './core/PhysicsEngine'
 import type { RailMap, RailNode, TrainPhysics } from './core/RailGraph'
 import { ScheduleManager } from './core/ScheduleManager'
-import type { ScheduleEntry, KeyboardControlConfig, SelectedTrainDisplay, TrainAction } from './core/types'
+import type {
+  ScheduleEntry,
+  KeyboardControlConfig,
+  SelectedTrainDisplay,
+  TrainAction,
+} from './core/types'
 import { tickToTime } from './core/utils'
 import type { StationConfig } from './data/stations'
 
@@ -31,6 +36,7 @@ const gameStartTime = ref(generateRandomStartTime())
 const view = ref<'start' | 'game'>('start')
 const activeStation = ref<StationConfig | null>(null)
 const gameSpeed = ref(1) // 1x, 2x, 5x, 10x
+const lastNonZeroSpeed = ref(1) // 用于 Shift+Space 恢复上次速度
 
 // Game Data
 const map = reactive<RailMap>({ nodes: {}, edges: {}, platforms: [] })
@@ -41,7 +47,6 @@ const showModeToast = ref(false)
 const keyMappings = ref<KeyboardControlConfig[]>([])
 
 // Game Control State
-const isPaused = ref(false)
 const showActionToast = ref(false)
 const actionToastMessage = ref('')
 
@@ -64,10 +69,10 @@ const FIXED_STEP = 1 / 60
 
 // --- Computed ---
 const selectedTrain = computed((): TrainPhysics | SelectedTrainDisplay | null => {
-  const active = trains.find(t => t.id === selectedTrainId.value)
+  const active = trains.find((t) => t.id === selectedTrainId.value)
   if (active) return active
 
-  const queued = waitingQueue.value.find(q => q.id === selectedTrainId.value)
+  const queued = waitingQueue.value.find((q) => q.id === selectedTrainId.value)
   if (queued) {
     return {
       id: queued.id,
@@ -131,7 +136,7 @@ function loop(timestamp: number) {
   const rawDt = (timestamp - lastTime) / 1000
   lastTime = timestamp
 
-  if (isPaused.value) {
+  if (gameSpeed.value === 0) {
     animationFrameId = requestAnimationFrame(loop)
     return
   }
@@ -172,6 +177,7 @@ function startSim() {
 }
 
 function setGameSpeed(s: number) {
+  if (s !== 0) lastNonZeroSpeed.value = s
   gameSpeed.value = s
 }
 
@@ -254,6 +260,8 @@ function goHome() {
   selectedTrainId.value = null
   tick.value = 0
   scheduleManager.value = null
+  gameSpeed.value = 1
+  lastNonZeroSpeed.value = 1
 }
 
 // --- Actions ---
@@ -263,7 +271,7 @@ function handleSelect(id: string) {
 
 function handleTrainAction(payload: { id: string; action: string }) {
   if (payload.action === 'DEPART') {
-    const t = trains.find(train => train.id === payload.id)
+    const t = trains.find((train) => train.id === payload.id)
     if (t) handleDepartAction(t)
   }
 }
@@ -277,7 +285,7 @@ function findPath(startNodeId: string, targetNodeId: string, railMap: RailMap): 
     const { node, path } = queue.shift()!
     if (node === targetNodeId) return path
 
-    const outgoing = Object.values(railMap.edges).filter(e => e.fromNode === node)
+    const outgoing = Object.values(railMap.edges).filter((e) => e.fromNode === node)
     for (const edge of outgoing) {
       if (!visited.has(edge.toNode)) {
         visited.add(edge.toNode)
@@ -366,13 +374,13 @@ function handleAction(action: TrainAction) {
       break
 
     case 'DEPART': {
-      const train = trains.find(t => t.id === selectedTrainId.value)
+      const train = trains.find((t) => t.id === selectedTrainId.value)
       if (train) handleDepartAction(train)
       break
     }
 
     case 'STOP': {
-      const train = trains.find(t => t.id === selectedTrainId.value)
+      const train = trains.find((t) => t.id === selectedTrainId.value)
       if (train) {
         train.speed = 0
         train.state = 'stopped'
@@ -392,12 +400,18 @@ function toggleKeyboardMode() {
 }
 
 function togglePause() {
-  isPaused.value = !isPaused.value
-  showToast(isPaused.value ? '游戏已暂停' : '游戏继续')
+  if (gameSpeed.value === 0) {
+    gameSpeed.value = lastNonZeroSpeed.value
+    showToast('游戏继续')
+  } else {
+    lastNonZeroSpeed.value = gameSpeed.value
+    gameSpeed.value = 0
+    showToast('游戏已暂停')
+  }
 }
 
 function navigateTrain(direction: 1 | -1) {
-  const allTrainIds = [...waitingQueue.value.map(q => q.id), ...trains.map(t => t.id)]
+  const allTrainIds = [...waitingQueue.value.map((q) => q.id), ...trains.map((t) => t.id)]
 
   if (allTrainIds.length === 0) {
     showToast('没有可选择的列车')
@@ -425,10 +439,14 @@ function showToast(message: string) {
 
 // 倍速键映射
 const SPEED_KEY_MAP: Record<string, number> = {
-  Digit1: 1, Numpad1: 1,
-  Digit2: 2, Numpad2: 2,
-  Digit5: 5, Numpad5: 5,
-  Digit0: 10, Numpad0: 10,
+  Digit1: 1,
+  Numpad1: 1,
+  Digit2: 2,
+  Numpad2: 2,
+  Digit5: 5,
+  Numpad5: 5,
+  Digit0: 10,
+  Numpad0: 10,
 }
 
 function handleKeyPress(event: KeyboardEvent) {
@@ -459,7 +477,7 @@ function handleKeyPress(event: KeyboardEvent) {
     const speed = SPEED_KEY_MAP[event.code]
     if (speed !== undefined) {
       event.preventDefault()
-      gameSpeed.value = speed
+      setGameSpeed(speed)
       showToast(`倍速: ${speed}x`)
       return
     }
@@ -519,7 +537,7 @@ function handleKeyPress(event: KeyboardEvent) {
   const keyUpper = key.toUpperCase()
 
   // Find mapping for this key
-  const mapping = keyMappings.value.find(m => m.key === keyUpper)
+  const mapping = keyMappings.value.find((m) => m.key === keyUpper)
   if (!mapping) return
 
   event.preventDefault()
@@ -528,7 +546,7 @@ function handleKeyPress(event: KeyboardEvent) {
   if (!node) return
 
   if (mapping.type === 'switch') {
-    const outgoingEdges = Object.values(map.edges).filter(e => e.fromNode === mapping.nodeId)
+    const outgoingEdges = Object.values(map.edges).filter((e) => e.fromNode === mapping.nodeId)
     if (outgoingEdges.length === 0) return
 
     const current = node.switchState ?? 0
@@ -539,7 +557,7 @@ function handleKeyPress(event: KeyboardEvent) {
 }
 
 function spawnTrainIntoMap(id: string) {
-  const entry = waitingQueue.value.find(q => q.id === id)
+  const entry = waitingQueue.value.find((q) => q.id === id)
   if (!entry) return
 
   const platformNum = Math.floor(Math.random() * 4) + 1
@@ -591,7 +609,7 @@ function spawnTrainIntoMap(id: string) {
   }
 
   // SPAWN SAFETY CHECK
-  const isBlocked = trains.some(t => t.currentEdgeId === currentEdgeId && t.position < 300)
+  const isBlocked = trains.some((t) => t.currentEdgeId === currentEdgeId && t.position < 300)
   if (isBlocked) {
     showToast('入口拥堵！前车尚未驶离安全区')
     return
@@ -744,7 +762,8 @@ onUnmounted(() => {
   flex: 1;
   position: relative;
   min-height: 200px;
-  background-image: linear-gradient(#1a1a1a 1px, transparent 1px),
+  background-image:
+    linear-gradient(#1a1a1a 1px, transparent 1px),
     linear-gradient(90deg, #1a1a1a 1px, transparent 1px);
   background-size: 50px 50px;
   background-color: #0d0d0d;
