@@ -1,20 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { RailMap, RailEdge, RailNode, TrainPhysics } from '../core/RailGraph';
+import type { KeyboardControlConfig } from '../core/types';
+import { CAR_PITCH } from '../core/constants';
 
-// Point type for bezier calculations
 interface Point {
   x: number;
   y: number;
-}
-
-// Keyboard control config
-interface KeyboardControlConfig {
-  nodeId: string
-  type: 'switch' | 'signal'
-  key: string
-  position: { x: number, y: number }
-  labelOffset: 'right' | 'left'
 }
 
 const props = defineProps<{
@@ -39,8 +31,7 @@ const safeNodes = computed(() => {
   return Object.values(props.map.nodes).filter(Boolean);
 });
 
-// Define car pitch (car length + gap)
-const TOTAL_PITCH = 30; // Example value, adjust as needed
+const TOTAL_PITCH = CAR_PITCH;
 
 // Helper to find coords
 function getNode(id: string) {
@@ -342,7 +333,7 @@ function getCarTransform(train: TrainPhysics, carIndex: number) {
       </defs>
       <!-- Layer 3.5: Switch Highlights (Active Path) -->
       <g class="switch-highlights">
-         <template v-for="node in map.nodes" :key="node.id">
+         <template v-for="node in safeNodes" :key="node.id">
             <template v-if="node.type === 'switch'">
               <path
                  v-if="getActiveEdge(node)"

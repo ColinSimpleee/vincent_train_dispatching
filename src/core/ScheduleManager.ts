@@ -1,11 +1,8 @@
 import type { TrainModel } from './RailGraph'
 import type { ScheduleConfig, ScheduleEntry, DelaySpread } from './types'
+import { TICKS_PER_MINUTE, DWELL_TIME_MIN, DWELL_TIME_MAX } from './constants'
 
-// 60 ticks/sec * 60 sec/min = 3600 ticks per game minute
-const TICKS_PER_MINUTE = 3600
 const FUTURE_WINDOW = 30 * TICKS_PER_MINUTE // 30 分钟 = 108000 ticks
-const DWELL_MIN = 1800 // 30 秒
-const DWELL_MAX = 3600 // 60 秒
 const DELAY_LIMIT = 36000 // ±10 分钟
 const DELAY_DRIFT_PROBABILITY = 0.002
 const DELAY_DRIFT_AMPLITUDE = 30
@@ -123,7 +120,7 @@ export class ScheduleManager {
 
     const model = TRAIN_MODELS[Math.floor(Math.random() * TRAIN_MODELS.length)]!
     const stopDuration =
-      DWELL_MIN + Math.floor(Math.random() * (DWELL_MAX - DWELL_MIN + 1))
+      DWELL_TIME_MIN + Math.floor(Math.random() * (DWELL_TIME_MAX - DWELL_TIME_MIN + 1))
 
     const maxInitialDelay = this.difficulty * 1800
     const initialDelay = Math.floor(

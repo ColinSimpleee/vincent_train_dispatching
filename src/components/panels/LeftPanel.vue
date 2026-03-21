@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import type { TrainPhysics } from '../../core/RailGraph';
 import type { ScheduleEntry, DelaySpread } from '../../core/types';
 import type { ScheduleManager } from '../../core/ScheduleManager';
+import { tickToTime as tickToTimeUtil } from '../../core/utils';
 
 const props = defineProps<{
   queue: ScheduleEntry[];
@@ -14,27 +15,9 @@ const props = defineProps<{
   currentTick?: number;
 }>();
 
-// Convert tick to HH:MM:SS format
 function tickToTime(tick: number): string {
-  const TICKS_PER_SECOND = 60;
   const startTime = props.gameStartTime || { hours: 8, minutes: 0, seconds: 0 };
-  
-  const totalGameSeconds = Math.floor(tick / TICKS_PER_SECOND);
-  
-  let hours = startTime.hours;
-  let minutes = startTime.minutes;
-  let seconds = startTime.seconds + totalGameSeconds;
-  
-  minutes += Math.floor(seconds / 60);
-  seconds = seconds % 60;
-  
-  hours += Math.floor(minutes / 60);
-  minutes = minutes % 60;
-  
-  hours = hours % 24;
-  
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+  return tickToTimeUtil(tick, startTime);
 }
 
 interface PunctualityInfo {
@@ -72,7 +55,7 @@ function isExitingEdge(edgeId: string): boolean {
 }
 
 function isPlatformEdge(edgeId: string): boolean {
-  return /t\d+/.test(edgeId);
+  return /^t\d+$/.test(edgeId);
 }
 
 function getStatusForQueuedTrain(queueTrain: ScheduleEntry): TrainStatusInfo {
@@ -231,9 +214,9 @@ function getTrainLocation(train: TrainPhysics): string {
   const edge = train.currentEdgeId;
   if (edge.includes('entry')) return '进站线路';
   if (edge.includes('exit')) return '出站线路';
-  if (edge.match(/t\d+/)) {
-    const match = edge.match(/t(\d+)/);
-    return match ? `${match[1]}站台` : '站台';
+  const platformMatch = edge.match(/^t(\d+)$/);
+  if (platformMatch) {
+    return `${platformMatch[1]}站台`;
   }
   return '线路中';
 }

@@ -67,7 +67,7 @@ function directionLabel(dir: string): string {
   return dir === 'up' ? '上行 →' : '下行 ←'
 }
 
-function printTable(entries: ScheduleEntry[], currentTick: number) {
+function printTable(entries: ScheduleEntry[]) {
   // 表头
   const header = [
     '车次'.padEnd(8),
@@ -164,7 +164,7 @@ for (let minute = 0; minute <= simulateMinutes; minute++) {
   const departed = entries.filter((e) => e.status === 'departed').slice(-5)
   const display = [...departed, ...active]
 
-  printTable(display, currentTick)
+  printTable(display)
   printStats(entries)
 }
 

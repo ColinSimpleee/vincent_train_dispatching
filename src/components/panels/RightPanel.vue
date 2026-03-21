@@ -1,22 +1,14 @@
 <script setup lang="ts">
-import type { TrainPhysics, TrainModel } from '../../core/RailGraph';
-
-// Partial train info for display (used for queued trains)
-interface TrainDisplayInfo {
-  id: string;
-  state: string;
-  modelType: TrainModel;
-  speed: number;
-  currentEdgeId: string;
-}
+import type { TrainPhysics } from '../../core/RailGraph';
+import type { SelectedTrainDisplay, TrainAction } from '../../core/types';
 
 defineProps<{
-  gameTime: string; // Virtual game time in HH:MM:SS format
-  selectedTrain: TrainPhysics | TrainDisplayInfo | null; // Active or Queue item
-  onAction: (action: string) => void;
+  gameTime: string;
+  selectedTrain: TrainPhysics | SelectedTrainDisplay | null;
+  onAction: (action: TrainAction) => void;
   gameSpeed: number;
   onSpeedChange: (s: number) => void;
-  keyboardMode: boolean; // Keyboard mode flag
+  keyboardMode: boolean;
 }>();
 </script>
 
