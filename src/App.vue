@@ -15,6 +15,10 @@ import type {
 } from './core/types'
 import { tickToTime } from './core/utils'
 import type { StationConfig } from './data/stations'
+import ScheduleModal from './components/ScheduleModal.vue'
+import { useDispatchLog } from './composables/useDispatchLog'
+import type { DispatchLogEntry, DelaySpread } from './core/types'
+import { SCHEDULE_VISIBLE_WINDOW } from './core/constants'
 
 // Virtual Game Time Configuration
 // China Railway Operation: 06:00 - 23:00
@@ -53,6 +57,11 @@ const actionToastMessage = ref('')
 // ScheduleManager 实例（在 handleStationSelect 中初始化）
 const scheduleManager = shallowRef<ScheduleManager | null>(null)
 
+const showScheduleModal = ref(false)
+const modalPage = ref(0)
+const { logs: dispatchLogs, addLog, clearLogs } = useDispatchLog()
+const platformStopRecorded = new Set<string>()
+
 // 等待队列由 ScheduleManager 驱动
 const waitingQueue = computed<ScheduleEntry[]>(() => {
   void tick.value
@@ -88,6 +97,58 @@ const selectedTrain = computed((): TrainPhysics | SelectedTrainDisplay | null =>
 // Virtual Game Time (HH:MM:SS format)
 const gameTime = computed(() => tickToTime(tick.value, gameStartTime.value))
 
+// 时刻表弹窗：过滤可见条目（waiting + admitted + 未来30分钟内的 upcoming），按到站时间排序
+const modalScheduleEntries = computed((): ScheduleEntry[] => {
+  if (!scheduleManager.value) return []
+  const allEntries = scheduleManager.value.getAllEntries()
+  const windowEnd = tick.value + SCHEDULE_VISIBLE_WINDOW
+  return allEntries
+    .filter(
+      (e) =>
+        e.status === 'waiting' ||
+        e.status === 'admitted' ||
+        (e.status === 'upcoming' && e.scheduledArriveTick <= windowEnd),
+    )
+    .sort((a, b) => a.scheduledArriveTick - b.scheduledArriveTick)
+})
+
+// 时刻表弹窗：为 waiting/admitted 列车预计算晚点扩散
+const modalDelaySpreadMap = computed((): Record<string, DelaySpread> => {
+  if (!scheduleManager.value) return {}
+  const result: Record<string, DelaySpread> = {}
+  for (const entry of modalScheduleEntries.value) {
+    if (entry.status === 'waiting' || entry.status === 'admitted') {
+      result[entry.id] = scheduleManager.value.computeDelaySpread(entry, tick.value)
+    }
+  }
+  return result
+})
+
+// 时刻表弹窗：映射列车状态文本
+const modalTrainStatusMap = computed((): Record<string, string> => {
+  const result: Record<string, string> = {}
+  for (const entry of modalScheduleEntries.value) {
+    if (entry.status === 'waiting') {
+      result[entry.id] = '等待区'
+    } else if (entry.status === 'admitted') {
+      const train = trains.find((t) => t.id === entry.id)
+      if (train) {
+        const edgeId = train.currentEdgeId
+        if (edgeId.endsWith('_out') || edgeId === 'e_exit' || edgeId === 'e_out') {
+          result[entry.id] = '正在出站'
+        } else if (edgeId.startsWith('t') || edgeId.includes('platform')) {
+          result[entry.id] = '停站'
+        } else {
+          result[entry.id] = '进站'
+        }
+      } else {
+        result[entry.id] = '进站'
+      }
+    }
+  }
+  return result
+})
+
 // --- Train Exit Processing ---
 
 function isMainExitEdge(edgeId: string): boolean {
@@ -111,6 +172,7 @@ function processExitingTrains(): void {
     // Check control handover threshold
     const handoverThreshold = HANDOVER_BASE + getTrainHalfLength(train)
     if (train.position >= handoverThreshold && !train.isHandedOver) {
+      addLog({ tick: tick.value, gameTime: gameTime.value, trainId: train.id, event: 'handover' })
       train.isHandedOver = true
       if (scheduleManager.value && train.scheduleEntryId) {
         scheduleManager.value.markDeparted(train.scheduleEntryId, tick.value)
@@ -159,6 +221,18 @@ function loop(timestamp: number) {
       cancelAnimationFrame(animationFrameId!)
       showToast(`游戏结束: ${e instanceof Error ? e.message : '未知错误'}`)
       return
+    }
+
+    for (const train of trains) {
+      if (train.passengerState === 'BOARDING' && !platformStopRecorded.has(train.id)) {
+        platformStopRecorded.add(train.id)
+        addLog({
+          tick: tick.value,
+          gameTime: gameTime.value,
+          trainId: train.id,
+          event: 'platform_stop',
+        })
+      }
     }
 
     processExitingTrains()
@@ -249,6 +323,10 @@ function handleStationSelect(config: StationConfig) {
     gameStartTimeOffsetTicks,
   )
 
+  platformStopRecorded.clear()
+  clearLogs()
+  modalPage.value = 0
+
   view.value = 'game'
   startSim()
 }
@@ -262,6 +340,10 @@ function goHome() {
   scheduleManager.value = null
   gameSpeed.value = 1
   lastNonZeroSpeed.value = 1
+  showScheduleModal.value = false
+  modalPage.value = 0
+  platformStopRecorded.clear()
+  clearLogs()
 }
 
 // --- Actions ---
@@ -369,13 +451,25 @@ function handleAction(action: TrainAction) {
   if (!selectedTrainId.value) return
 
   switch (action) {
-    case 'ADMIT':
-      spawnTrainIntoMap(selectedTrainId.value)
+    case 'ADMIT': {
+      const success = spawnTrainIntoMap(selectedTrainId.value)
+      if (success) {
+        addLog({
+          tick: tick.value,
+          gameTime: gameTime.value,
+          trainId: selectedTrainId.value,
+          event: 'admit',
+        })
+      }
       break
+    }
 
     case 'DEPART': {
       const train = trains.find((t) => t.id === selectedTrainId.value)
-      if (train) handleDepartAction(train)
+      if (train) {
+        handleDepartAction(train)
+        addLog({ tick: tick.value, gameTime: gameTime.value, trainId: train.id, event: 'depart' })
+      }
       break
     }
 
@@ -384,6 +478,7 @@ function handleAction(action: TrainAction) {
       if (train) {
         train.speed = 0
         train.state = 'stopped'
+        addLog({ tick: tick.value, gameTime: gameTime.value, trainId: train.id, event: 'stop' })
       }
       break
     }
@@ -556,9 +651,9 @@ function handleKeyPress(event: KeyboardEvent) {
   }
 }
 
-function spawnTrainIntoMap(id: string) {
+function spawnTrainIntoMap(id: string): boolean {
   const entry = waitingQueue.value.find((q) => q.id === id)
-  if (!entry) return
+  if (!entry) return false
 
   const platformNum = Math.floor(Math.random() * 4) + 1
 
@@ -575,7 +670,7 @@ function spawnTrainIntoMap(id: string) {
       path = [currentEdgeId, ...route]
     } else {
       console.error('No path found to', targetNode)
-      return
+      return false
     }
   } else if (map.nodes['n_L_in']) {
     // --- Small Station (Standard) ---
@@ -605,14 +700,14 @@ function spawnTrainIntoMap(id: string) {
   const spawnEdge = map.edges[currentEdgeId]
   if (!spawnEdge) {
     console.error('Invalid spawn edge', currentEdgeId)
-    return
+    return false
   }
 
   // SPAWN SAFETY CHECK
   const isBlocked = trains.some((t) => t.currentEdgeId === currentEdgeId && t.position < 300)
   if (isBlocked) {
     showToast('入口拥堵！前车尚未驶离安全区')
-    return
+    return false
   }
 
   spawnEdge.occupiedBy = newTrain.id
@@ -621,6 +716,8 @@ function spawnTrainIntoMap(id: string) {
   if (scheduleManager.value) {
     scheduleManager.value.markAdmitted(entry.id)
   }
+
+  return true
 }
 
 // --- Lifecycle Hooks ---
@@ -657,6 +754,7 @@ onUnmounted(() => {
     <main class="layout-center">
       <div class="map-header">
         <div class="back-btn" @click="goHome">&larr; MENU</div>
+        <div class="schedule-btn" @click="showScheduleModal = true">时刻表</div>
         <h2>{{ activeStation?.name || 'GAME' }} - CONTROL CENTER</h2>
       </div>
       <div class="map-viewport">
@@ -691,6 +789,22 @@ onUnmounted(() => {
     <div v-if="showActionToast" class="action-toast">
       {{ actionToastMessage }}
     </div>
+
+    <ScheduleModal
+      :visible="showScheduleModal"
+      :gameTime="gameTime"
+      :gameSpeed="gameSpeed"
+      :currentTick="tick"
+      :gameStartTime="gameStartTime"
+      :dispatchLogs="dispatchLogs"
+      :scheduleEntries="modalScheduleEntries"
+      :delaySpreadMap="modalDelaySpreadMap"
+      :trainStatusMap="modalTrainStatusMap"
+      :modalPage="modalPage"
+      @close="showScheduleModal = false"
+      @speed-change="setGameSpeed"
+      @update:modalPage="modalPage = $event"
+    />
   </div>
 </template>
 
@@ -746,6 +860,25 @@ onUnmounted(() => {
 }
 
 .back-btn:hover {
+  color: #fff;
+  border-color: #555;
+  background: #222;
+}
+
+.schedule-btn {
+  position: absolute;
+  right: 20px;
+  color: #777;
+  font-size: 12px;
+  cursor: pointer;
+  letter-spacing: 2px;
+  padding: 5px 10px;
+  border: 1px solid #333;
+  border-radius: 4px;
+  transition: all 0.2s;
+  z-index: 20;
+}
+.schedule-btn:hover {
   color: #fff;
   border-color: #555;
   background: #222;
