@@ -442,7 +442,7 @@ function delayColor(delayTicks: number): string {
   height: 1125px;
   background: linear-gradient(to bottom, #302f39 27%, #86829f 99%);
   border-radius: 154px;
-  padding: 90px;
+  padding: 91px 91px 91px 91px;
   display: flex;
   flex-direction: column;
   transition: border-top-right-radius 0.2s ease;
@@ -479,19 +479,20 @@ function delayColor(delayTicks: number): string {
 /* 主区域 flex */
 .main-area {
   display: flex;
-  gap: 96px;
+  gap: 56px;
   flex: 1;
   min-height: 0;
 }
 
 /* ====== 左侧时刻表 ====== */
 .schedule-section {
-  flex: 1;
+  width: 1300px;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   background: #e0dad9;
   border-radius: 80px;
-  padding: 60px 50px 25px;
+  padding: 72px 51px 30px;
   min-width: 0;
 }
 
@@ -499,7 +500,7 @@ function delayColor(delayTicks: number): string {
   text-align: center;
   font-size: 36px;
   color: #000;
-  margin: 0 0 20px 0;
+  margin: 0 0 15px 0;
 }
 
 .table-container {
@@ -587,9 +588,10 @@ td {
 /* ====== 右侧面板 ====== */
 .side-panel {
   width: 344px;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
 }
 
 /* 游戏时间 */
@@ -605,6 +607,7 @@ td {
 .time-display {
   font-size: 38px;
   color: #000;
+  letter-spacing: 2px;
 }
 
 /* 倍速 */
@@ -612,7 +615,8 @@ td {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 20px;
+  gap: 16px;
+  padding: 10px 0;
 }
 
 .speed-arrow {
@@ -636,7 +640,7 @@ td {
   flex: 1;
   background: #e0dad9;
   border-radius: 80px;
-  padding: 25px 25px;
+  padding: 30px 30px;
   display: flex;
   flex-direction: column;
   min-height: 0;

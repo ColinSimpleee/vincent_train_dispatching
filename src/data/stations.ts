@@ -22,7 +22,7 @@ export const stationSmall: StationConfig = {
         peakIntervalRange: [4, 6],
         offPeakIntervalRange: [8, 12],
         peakWindows: [[420, 540], [1020, 1140]],
-        directionRatio: 0.5,
+        directionRatio: 1.0, // 单线车站，只有上行
     },
     mapData: {
         nodes: {
