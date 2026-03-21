@@ -17,7 +17,7 @@ import { tickToTime } from './core/utils'
 import type { StationConfig } from './data/stations'
 import ScheduleModal from './components/ScheduleModal.vue'
 import { useDispatchLog } from './composables/useDispatchLog'
-import type { DispatchLogEntry, DelaySpread } from './core/types'
+import type { DelaySpread } from './core/types'
 import { SCHEDULE_VISIBLE_WINDOW } from './core/constants'
 
 // Virtual Game Time Configuration
