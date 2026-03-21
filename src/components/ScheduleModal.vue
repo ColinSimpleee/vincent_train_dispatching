@@ -41,7 +41,7 @@ function onOverlayClick(event: MouseEvent) {
 }
 
 // --- 倍速控制 ---
-const speedOptions = [...SPEED_OPTIONS]
+const speedOptions: number[] = [...SPEED_OPTIONS]
 
 function speedUp() {
   const idx = speedOptions.indexOf(props.gameSpeed)
