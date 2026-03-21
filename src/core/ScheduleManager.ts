@@ -24,6 +24,8 @@ export class ScheduleManager {
   private nextTrainNumber: number = 500
   private difficultyCounter: number = 0
   private gameStartTimeOffsetTicks: number
+  /** 每个方向上最后占用的游戏分钟，用于防止同方向同分钟内多车到达 */
+  private lastUsedMinute: Record<'up' | 'down', number> = { up: -1, down: -1 }
 
   constructor(
     config: ScheduleConfig,
@@ -42,12 +44,17 @@ export class ScheduleManager {
   /** 开局预生成 3 趟已在等待区的列车，宽限时间 90 秒 */
   private seedInitialWaiting(startTick: number): void {
     for (let i = 0; i < INITIAL_WAITING_COUNT; i++) {
-      const entry = this.createEntry(startTick)
+      // 每趟种子列车错开 1 分钟，避免同方向同分钟冲突
+      const arriveTick = startTick + i * TICKS_PER_MINUTE
+      const entry = this.createEntry(arriveTick)
       entry.status = 'waiting'
       entry.currentDelay = 0
       entry.handoverDelay = 0
       entry.handoverTick = startTick
       entry.reactionGraceTicks = INITIAL_GRACE_TICKS
+      this.lastUsedMinute[entry.direction] = Math.floor(
+        this.tickToGameMinute(entry.scheduledArriveTick),
+      )
       this.entries.push(entry)
     }
   }
@@ -63,6 +70,22 @@ export class ScheduleManager {
       if (cursor > endTick) break
 
       const entry = this.createEntry(cursor)
+
+      // 同方向同一游戏分钟内不允许多车到达，冲突时顺延到下一分钟
+      const gameMinute = this.tickToGameMinute(entry.scheduledArriveTick)
+      const minuteKey = Math.floor(gameMinute)
+      if (this.lastUsedMinute[entry.direction] === minuteKey) {
+        const nextMinuteTick =
+          entry.scheduledArriveTick + (1 - (gameMinute - minuteKey)) * TICKS_PER_MINUTE
+        const adjusted = Math.ceil(nextMinuteTick)
+        entry.scheduledArriveTick = adjusted
+        entry.scheduledDepartTick = adjusted + entry.scheduledStopDuration
+        cursor = adjusted
+      }
+
+      this.lastUsedMinute[entry.direction] = Math.floor(
+        this.tickToGameMinute(entry.scheduledArriveTick),
+      )
       this.entries.push(entry)
     }
 

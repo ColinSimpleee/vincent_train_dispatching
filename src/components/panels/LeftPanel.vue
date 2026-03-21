@@ -136,7 +136,7 @@ function getStatusForActiveTrain(train: TrainPhysics): TrainStatusInfo {
       status: '可以出站',
       statusColor: '#2ecc71',
       location: getTrainLocation(train),
-      estimatedTime: estimateDepartureTime(train),
+      estimatedTime: getScheduledDepartTime(train),
       timeLabel: '预计出站',
       punctuality: getDeparturePunctuality(train)
     };
@@ -148,20 +148,20 @@ function getStatusForActiveTrain(train: TrainPhysics): TrainStatusInfo {
       status: '停站中',
       statusColor: '#e74c3c',
       location: getTrainLocation(train),
-      estimatedTime: estimateDepartureTime(train),
+      estimatedTime: getScheduledDepartTime(train),
       timeLabel: '预计出站',
       punctuality: getDurationPunctuality(train)
     };
   }
 
   if (isMoving) {
-    // 正在进站 → 显示"预计x分钟后出站"
+    // 正在进站
     if (isEnteringEdge(edgeId)) {
       return {
         status: '正在进站',
         statusColor: '#3498db',
         location: getTrainLocation(train),
-        estimatedTime: estimateArrivalTime(),
+        estimatedTime: getScheduledArriveTime(train),
         timeLabel: '预计进站',
         punctuality: getDurationPunctuality(train)
       };
@@ -171,7 +171,7 @@ function getStatusForActiveTrain(train: TrainPhysics): TrainStatusInfo {
         status: '正在出站',
         statusColor: '#2ecc71',
         location: getTrainLocation(train),
-        estimatedTime: estimateArrivalTime(),
+        estimatedTime: getScheduledDepartTime(train),
         timeLabel: '预计出站',
         punctuality: DEFAULT_PUNCTUALITY
       };
@@ -180,7 +180,7 @@ function getStatusForActiveTrain(train: TrainPhysics): TrainStatusInfo {
       status: '运行中',
       statusColor: '#3498db',
       location: getTrainLocation(train),
-      estimatedTime: estimateArrivalTime(),
+      estimatedTime: getScheduledArriveTime(train),
       timeLabel: '预计到达',
       punctuality: DEFAULT_PUNCTUALITY
     };
@@ -238,23 +238,26 @@ function getTrainLocation(train: TrainPhysics): string {
   return '线路中';
 }
 
-// Estimate arrival time (simplified)
-function estimateArrivalTime(): string {
-  // Simplified: just show current time + 1 minute
-  const currentTick = props.currentTick ?? 0;
-  return tickToTime(currentTick + 3600); // +1 minute
+// 从时刻表获取计划到站时间（静态）
+function getScheduledArriveTime(train: TrainPhysics): string {
+  if (train.scheduledArriveTick != null) {
+    return tickToTime(train.scheduledArriveTick);
+  }
+  return '--:--:--';
 }
 
-// Estimate departure time
-function estimateDepartureTime(train: TrainPhysics): string {
-  const currentTick = props.currentTick || 0;
-  // User req: Arrival + Stop + Buffer
-  if (train.arrivalTick && train.stopDuration && train.stopBuffer) {
-      return tickToTime(train.arrivalTick + train.stopDuration + train.stopBuffer);
+// 从时刻表获取计划出站时间（静态）
+function getScheduledDepartTime(train: TrainPhysics): string {
+  const entry = props.scheduleManager?.getEntryById(train.scheduleEntryId ?? train.id);
+  if (entry) {
+    return tickToTime(entry.scheduledDepartTick);
   }
-  // Fallback
-  const remainingTicks = train.boardingTimer || 0;
-  return tickToTime(currentTick + remainingTicks + 3600);
+  // 回退：用列车自身的计划到站 + 停站时长
+  if (train.scheduledArriveTick != null && train.stopDuration != null) {
+    const buffer = train.stopBuffer ?? 0;
+    return tickToTime(train.scheduledArriveTick + train.stopDuration + buffer);
+  }
+  return '--:--:--';
 }
 
 // Get punctuality status for queued trains (compared to scheduled arrive tick)
