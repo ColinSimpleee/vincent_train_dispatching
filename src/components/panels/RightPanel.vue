@@ -9,6 +9,7 @@ const props = defineProps<{
   gameSpeed: number;
   keyboardMode: boolean;
   currentTick?: number;
+  isReverseStation?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -178,8 +179,12 @@ function clickSpeed(o: SpeedOpt) {
           <span>允许进站 · ADMIT</span>
           <span v-if="keyboardMode" class="kbd">TAB</span>
         </button>
-        <button class="cmd-btn depart" :disabled="!canDepart" @click="emit('action', 'DEPART')">
-          <span>发车信号 · DEPART</span>
+        <button
+          :class="['cmd-btn', 'depart', { reverse: isReverseStation }]"
+          :disabled="!canDepart"
+          @click="emit('action', 'DEPART')"
+        >
+          <span>{{ isReverseStation ? '折返发车 · REVERSE' : '发车信号 · DEPART' }}</span>
           <span v-if="keyboardMode" class="kbd">⇧G</span>
         </button>
         <button class="cmd-btn stop" :disabled="!canStop" @click="emit('action', 'STOP')">
@@ -445,6 +450,16 @@ function clickSpeed(o: SpeedOpt) {
   background: var(--accent);
   color: var(--fg-dark);
   border-color: var(--accent);
+}
+/* 折返发车：琥珀色，与通过式发车区分 */
+.cmd-btn.depart.reverse:not(:disabled) {
+  border-color: rgba(240, 194, 76, 0.5);
+  color: var(--sig-amber);
+}
+.cmd-btn.depart.reverse:not(:disabled):hover {
+  background: var(--sig-amber);
+  color: var(--fg-dark);
+  border-color: var(--sig-amber);
 }
 .cmd-btn.stop:not(:disabled) {
   border-color: rgba(241, 91, 91, 0.4);

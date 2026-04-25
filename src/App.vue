@@ -110,6 +110,9 @@ const selectedTrain = computed((): TrainPhysics | SelectedTrainDisplay | null =>
 // Virtual Game Time (HH:MM:SS format)
 const gameTime = computed(() => tickToTime(tick.value, gameStartTime.value))
 
+// 当前是否为终端站（所有列车都需折返出站）
+const isReverseStation = computed(() => activeStation.value?.type === 'terminal')
+
 // 时刻表弹窗：过滤可见条目（waiting + admitted + 未来30分钟内的 upcoming），按到站时间排序
 const modalScheduleEntries = computed((): ScheduleEntry[] => {
   if (!scheduleManager.value) return []
@@ -147,7 +150,13 @@ const modalTrainStatusMap = computed((): Record<string, string> => {
       const train = trains.find((t) => t.id === entry.id)
       if (train) {
         const edgeId = train.currentEdgeId
-        if (edgeId.endsWith('_out') || edgeId === 'e_exit' || edgeId === 'e_out') {
+        if (
+          edgeId.endsWith('_out') ||
+          edgeId === 'e_exit' ||
+          edgeId === 'e_out' ||
+          train.direction === -1
+        ) {
+          // 包含终端站自然折返：dir=-1 即出站中
           result[entry.id] = '正在出站'
         } else if (edgeId.startsWith('t') || edgeId.includes('platform')) {
           result[entry.id] = '停站'
@@ -172,6 +181,17 @@ function getTrainHalfLength(train: TrainPhysics): number {
   return PhysicsEngine.getTrainLength(train) / 2
 }
 
+// 判断列车是否在"反向出站"状态（终端站自然折返：在入口边上 dir=-1）
+function getReverseExitProgress(train: TrainPhysics): number | null {
+  if (train.direction !== -1) return null
+  const edge = map.edges[train.currentEdgeId]
+  if (!edge) return null
+  const fromNode = map.nodes[edge.fromNode]
+  if (fromNode?.type !== 'endpoint') return null
+  // 反向时 position 从 length 减小到 0,exitProgress = 已经走了多远
+  return edge.length - train.position
+}
+
 function processExitingTrains(): void {
   const HANDOVER_BASE = 400
 
@@ -180,11 +200,22 @@ function processExitingTrains(): void {
     if (!train) continue
 
     const edge = map.edges[train.currentEdgeId]
-    if (!edge || !isMainExitEdge(train.currentEdgeId)) continue
+    if (!edge) continue
 
-    // Check control handover threshold
+    // 两种出站方式：(a) 通过式 — 在 _exit/_out 主出站边正向行驶
+    //              (b) 终端反向 — 在入口边上反向行驶,目的地是入口端点
+    let exitProgress: number
+    if (isMainExitEdge(train.currentEdgeId)) {
+      exitProgress = train.position
+    } else {
+      const rev = getReverseExitProgress(train)
+      if (rev === null) continue
+      exitProgress = rev
+    }
+
+    // 控制移交阈值
     const handoverThreshold = HANDOVER_BASE + getTrainHalfLength(train)
-    if (train.position >= handoverThreshold && !train.isHandedOver) {
+    if (exitProgress >= handoverThreshold && !train.isHandedOver) {
       addLog({ tick: tick.value, gameTime: gameTime.value, trainId: train.id, event: 'handover' })
       train.isHandedOver = true
       if (scheduleManager.value && train.scheduleEntryId) {
@@ -192,11 +223,11 @@ function processExitingTrains(): void {
       }
     }
 
-    // 移交后，整列车驶出屏幕再移除
+    // 移交后,整列车驶出屏幕再移除
     if (train.isHandedOver) {
       const fullTrainLength = getTrainHalfLength(train) * 2
       const removalThreshold = handoverThreshold + fullTrainLength + 200
-      if (train.position >= removalThreshold) {
+      if (exitProgress >= removalThreshold) {
         trains.splice(i, 1)
       }
     }
@@ -284,6 +315,11 @@ function generateKeyMappings(railMap: RailMap): KeyboardControlConfig[] {
 
   for (const node of Object.values(railMap.nodes)) {
     if (node.type === 'switch') {
+      // 联动组成员：只给 master 分配按键，其它跳过（一个键控整组）
+      if (node.groupId) {
+        const group = railMap.switchGroups?.find((g) => g.id === node.groupId)
+        if (group && group.masterNodeId !== node.id) continue
+      }
       switches.push(node)
     }
     if (node.signalState !== undefined) {
@@ -376,6 +412,28 @@ function onPausedAction() {
   pushToast('暂停中：信号与道岔已锁定', 'error', 1800)
 }
 
+// 联动开关组：剪式渡线 4 个角点一次切换
+function toggleSwitchGroup(groupId: string) {
+  if (gameSpeed.value === 0) {
+    onPausedAction()
+    return
+  }
+  const group = map.switchGroups?.find((g) => g.id === groupId)
+  if (!group) return
+  const master = group.members.find((m) => m.nodeId === group.masterNodeId)
+  if (!master) return
+  const masterNode = map.nodes[master.nodeId]
+  if (!masterNode) return
+  // 从 master 的当前 switchState 反查组的当前模式
+  const currentState = masterNode.switchState ?? 0
+  const currentMode = master.states.indexOf(currentState)
+  const newMode = ((currentMode >= 0 ? currentMode : 0) + 1) % master.states.length
+  for (const m of group.members) {
+    const n = map.nodes[m.nodeId]
+    if (n) n.switchState = m.states[newMode] ?? 0
+  }
+}
+
 function handleTrainAction(payload: { id: string; action: string }) {
   if (payload.action === 'DEPART') {
     const t = trains.find((train) => train.id === payload.id)
@@ -431,6 +489,20 @@ function handleDepartAction(train: TrainPhysics): void {
   const reverse = current + '_rev'
 
   train.passengerState = undefined
+
+  // Case 0: 终端站自然折返 — 站台末端是 buffer_stop 时,翻转方向沿原路反向走出去
+  // 物理引擎本身支持边的双向通行,无需独立的 _rev/_out 边
+  // path 设为非空哨兵值避免触发"path 用尽就停车"的兜底,resolveNextEdge 自己能找到反向路径
+  const currentEdgeData = map.edges[current]
+  if (currentEdgeData?.isPlatform) {
+    const endNode = map.nodes[currentEdgeData.toNode]
+    if (endNode?.type === 'buffer_stop') {
+      train.direction = -1
+      train.path = ['__REVERSE_EXIT__']
+      startTrainMoving(train, 80)
+      return
+    }
+  }
 
   const targetNode = getExitNodeId()
 
@@ -685,6 +757,11 @@ function handleKeyPress(event: KeyboardEvent) {
   }
 
   if (mapping.type === 'switch') {
+    if (node.groupId) {
+      // master 键触发整组切换
+      toggleSwitchGroup(node.groupId)
+      return
+    }
     const outgoingEdges = Object.values(map.edges).filter((e) => e.fromNode === mapping.nodeId)
     if (outgoingEdges.length === 0) return
 
@@ -705,19 +782,15 @@ function spawnTrainIntoMap(id: string): boolean {
   let currentEdgeId = ''
   const direction: 1 | -1 = 1
 
-  if (map.nodes['n_sw_1']) {
-    // --- Terminal (Ladder) ---
-    currentEdgeId = 'e_in'
-    const targetNode = `n_p${platformNum}_end`
-    const route = findPath('n_sw_1', targetNode, map)
-    if (route.length > 0) {
-      path = [currentEdgeId, ...route]
-    } else {
-      console.error('No path found to', targetNode)
-      return false
-    }
+  if (map.nodes['n_x1']) {
+    // --- 终端车站（剪式渡线 + 1-to-2 分岔）---
+    // 上行从顶部入口、下行从底部入口；具体到哪条站台由玩家通过 X 道岔 + sw_U/D 控制
+    const fromTop = entry.direction === 'up'
+    currentEdgeId = fromTop ? 'e_entry_U' : 'e_entry_D'
+    // path 仅作为"还有去向"的提示，物理引擎按 switchState 实际选边
+    path = [`t${platformNum}`]
   } else if (map.nodes['n_L_in']) {
-    // --- Small Station (Standard) ---
+    // --- 新手教学站 ---
     currentEdgeId = 'e_entry_L'
     path = [`e_L_t${platformNum}`, `t${platformNum}`]
   } else {
@@ -808,6 +881,7 @@ onUnmounted(() => {
         :gameStartTime="gameStartTime"
         :currentTick="tick"
         :schedule-manager="scheduleManager"
+        :isReverseStation="isReverseStation"
         @select="handleSelect"
       />
 
@@ -822,6 +896,7 @@ onUnmounted(() => {
           @train-action="handleTrainAction"
           @select="handleSelect"
           @paused-action="onPausedAction"
+          @toggle-group="toggleSwitchGroup"
         />
 
         <div
@@ -853,6 +928,7 @@ onUnmounted(() => {
         :gameSpeed="gameSpeed"
         :keyboardMode="keyboardMode"
         :currentTick="tick"
+        :isReverseStation="isReverseStation"
         @action="handleAction"
         @speed-change="setGameSpeed"
       />
@@ -869,6 +945,7 @@ onUnmounted(() => {
       :delaySpreadMap="modalDelaySpreadMap"
       :trainStatusMap="modalTrainStatusMap"
       :modalPage="modalPage"
+      :isReverseStation="isReverseStation"
       @close="showScheduleModal = false"
       @speed-change="setGameSpeed"
       @update:modalPage="modalPage = $event"

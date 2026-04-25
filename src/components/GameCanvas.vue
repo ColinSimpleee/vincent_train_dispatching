@@ -22,7 +22,16 @@ const emit = defineEmits<{
   (e: 'train-action', payload: { id: string; action: string }): void;
   (e: 'select', id: string): void;
   (e: 'paused-action'): void;
+  (e: 'toggle-group', groupId: string): void;
 }>();
+
+// 站台末端是 buffer_stop 的列车在出站时会原地翻转方向，"发车"按钮要贴在尾车（新车头）
+function willReverseDepart(train: TrainPhysics): boolean {
+  const edge = props.map.edges[train.currentEdgeId];
+  if (!edge?.isPlatform) return false;
+  const end = props.map.nodes[edge.toNode];
+  return end?.type === 'buffer_stop';
+}
 
 const safeEdges = computed(() => {
   if (!props.map?.edges) return [];
@@ -94,11 +103,17 @@ function toggleSwitch(node: RailNode | undefined): void {
     emit('paused-action');
     return;
   }
+  if (node.groupId) {
+    // 联动组：交给 App 处理整组切换
+    emit('toggle-group', node.groupId);
+    return;
+  }
   const edges = getOutgoingEdges(node.id);
   if (edges.length === 0) return;
   const current = node.switchState ?? 0;
   node.switchState = (current + 1) % edges.length;
 }
+
 
 function toggleSignal(node: RailNode | undefined): void {
   if (!node) return;
@@ -109,21 +124,70 @@ function toggleSignal(node: RailNode | undefined): void {
   node.signalState = node.signalState === 'red' ? 'green' : 'red';
 }
 
+// 反向行驶时（dir=-1），从 currentEdge.fromNode 向前一条边走（沿当前道岔状态）。
+// 镜像 PhysicsEngine.resolveNextEdge 在 arrivedAtFromNode=true 时的逻辑。
+function getNextReverseEdge(currentEdgeId: string): string | undefined {
+  const cur = props.map.edges[currentEdgeId];
+  if (!cur) return undefined;
+  const node = props.map.nodes[cur.fromNode];
+  if (!node) return undefined;
+
+  const incoming: string[] = [];
+  for (const e of Object.values(props.map.edges)) {
+    if (e.toNode === node.id) incoming.push(e.id);
+  }
+  incoming.sort();
+  const candidates = incoming.filter((id) => id !== currentEdgeId);
+  if (candidates.length === 0) return undefined;
+  if (candidates.length === 1) return candidates[0];
+  if (node.type === 'switch') {
+    const idx = node.switchState ?? 0;
+    return candidates[idx % candidates.length];
+  }
+  return candidates[0];
+}
+
 function getCarTransform(train: TrainPhysics, carIndex: number): string {
   let dist = train.position - carIndex * CAR_PITCH;
   let edgeId = train.currentEdgeId;
 
   if (dist < 0) {
-    const history = train.visitedPath || [];
-    let hIndex = 0;
-    while (dist < 0 && hIndex < history.length) {
-      const prevEdgeId = history[hIndex];
-      if (!prevEdgeId) break;
-      const prevEdge = props.map.edges[prevEdgeId];
-      if (!prevEdge) break;
-      edgeId = prevEdgeId;
-      dist += prevEdge.length;
-      hIndex++;
+    if (train.direction === 1) {
+      // 正向行驶：沿 visitedPath 往身后回溯（已走过的边在身后）
+      const history = train.visitedPath || [];
+      let hIndex = 0;
+      while (dist < 0 && hIndex < history.length) {
+        const prevEdgeId = history[hIndex];
+        if (!prevEdgeId) break;
+        const prevEdge = props.map.edges[prevEdgeId];
+        if (!prevEdge) break;
+        edgeId = prevEdgeId;
+        dist += prevEdge.length;
+        hIndex++;
+      }
+    } else {
+      // 反向行驶：领头车厢是低 position 端,跨过 fromNode 后应在"motion 方向上的下一条边"
+      // 这条边由当前道岔状态实时决定，不能用 visitedPath（visitedPath 是身后/已经离开的边）
+      let safety = 0;
+      while (dist < 0 && safety < 10) {
+        safety++;
+        const cur = props.map.edges[edgeId];
+        if (!cur) break;
+        const nextId = getNextReverseEdge(edgeId);
+        if (!nextId) break; // 走到入口端点了，让后续走 endpoint 虚尾分支
+        const next = props.map.edges[nextId];
+        if (!next) break;
+        // 入边的 toNode = 当前 fromNode，所以从 toNode 一侧进入新边，继续 dir=-1
+        // 反向越界距离映射到新边的 length-overflow 区间
+        if (next.toNode === cur.fromNode) {
+          dist = next.length + dist;
+        } else if (next.fromNode === cur.fromNode) {
+          dist = -dist;
+        } else {
+          break;
+        }
+        edgeId = nextId;
+      }
     }
   }
 
@@ -316,9 +380,10 @@ function getCarTransform(train: TrainPhysics, carIndex: number): string {
             </div>
           </foreignObject>
 
+          <!-- 通过式发车：按钮贴在车头右侧，箭头朝右 -->
           <foreignObject
-            v-if="train.passengerState === 'READY'"
-            :key="`${train.id}-depart`"
+            v-if="train.passengerState === 'READY' && !willReverseDepart(train)"
+            :key="`${train.id}-depart-fwd`"
             width="60"
             height="22"
             x="14"
@@ -332,6 +397,25 @@ function getCarTransform(train: TrainPhysics, carIndex: number): string {
               @click.stop="emit('train-action', { id: train.id, action: 'DEPART' })"
             >
               发车 →
+            </button>
+          </foreignObject>
+          <!-- 终端折返发车：按钮贴在车尾(新车头)左侧，箭头朝左 -->
+          <foreignObject
+            v-if="train.passengerState === 'READY' && willReverseDepart(train)"
+            :key="`${train.id}-depart-rev`"
+            width="60"
+            height="22"
+            x="-74"
+            y="-30"
+            :transform="getCarTransform(train, train.isCoupled ? 15 : 7)"
+            style="overflow: visible"
+          >
+            <button
+              class="depart-btn-in-scene reverse"
+              xmlns="http://www.w3.org/1999/xhtml"
+              @click.stop="emit('train-action', { id: train.id, action: 'DEPART' })"
+            >
+              ← 折返
             </button>
           </foreignObject>
         </template>
@@ -579,5 +663,15 @@ function getCarTransform(train: TrainPhysics, carIndex: number): string {
 }
 .depart-btn-in-scene:active {
   background: var(--accent-press);
+}
+/* 折返发车：用琥珀色和直行发车区分 */
+.depart-btn-in-scene.reverse {
+  background: var(--sig-amber);
+}
+.depart-btn-in-scene.reverse:hover {
+  background: #ffd066;
+}
+.depart-btn-in-scene.reverse:active {
+  background: #d9a533;
 }
 </style>

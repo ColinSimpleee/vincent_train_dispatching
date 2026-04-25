@@ -51,6 +51,7 @@ const props = defineProps<{
   selectedId: string | null;
   gameStartTime?: { hours: number; minutes: number; seconds: number };
   currentTick?: number;
+  isReverseStation?: boolean;
 }>();
 
 defineEmits<{
@@ -92,8 +93,10 @@ function getTrainLoc(train: TrainPhysics): string {
   const edge = train.currentEdgeId;
   const m = edge.match(/^t(\d+)$/);
   if (m) return `${m[1]} 站台`;
-  if (isEnteringEdge(edge)) return '进站线路';
   if (isExitingEdge(edge)) return '出站线路';
+  // 终端站反向折返时，进站边变成出站线路
+  if (train.direction === -1) return '出站线路';
+  if (isEnteringEdge(edge)) return '进站线路';
   return '线路中';
 }
 
@@ -109,6 +112,8 @@ function inferStatusKey(train: TrainPhysics): StatusKey {
   }
   if (train.state === 'stopped') return 'stopped';
   if (isExitingEdge(edge)) return 'departing';
+  // 终端站自然折返：dir=-1 即视为出站中（即使还在入口边/分岔边上）
+  if (train.direction === -1) return 'departing';
   if (isEnteringEdge(edge)) return 'arriving';
   return 'running';
 }
@@ -229,7 +234,10 @@ const rows = computed<RowItem[]>(() => {
         @click="$emit('select', r.id)"
       >
         <div class="trow-top">
-          <span class="trow-id">{{ r.id }}</span>
+          <span class="trow-id">
+            {{ r.id }}
+            <span v-if="isReverseStation" class="reverse-tag" title="本站折返">折返</span>
+          </span>
           <span :class="['trow-badge', r.statusKey]">{{ STATUS_ZH[r.statusKey] }}</span>
         </div>
         <div class="trow-bot">
@@ -338,6 +346,19 @@ const rows = computed<RowItem[]>(() => {
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--fg);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.reverse-tag {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 5px;
+  border-radius: 2px;
+  letter-spacing: 0.1em;
+  background: rgba(240, 194, 76, 0.18);
+  color: var(--sig-amber);
 }
 .trow-badge {
   font-family: var(--mono);

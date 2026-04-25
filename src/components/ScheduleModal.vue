@@ -15,6 +15,7 @@ const props = defineProps<{
   delaySpreadMap: Record<string, DelaySpread>;
   trainStatusMap: Record<string, string>;
   modalPage: number;
+  isReverseStation?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -194,7 +195,10 @@ function eventClass(ev: DispatchLogEntry['event']): string {
               </thead>
               <tbody>
                 <tr v-for="entry in pagedEntries" :key="entry.id">
-                  <td class="id">{{ entry.id }}</td>
+                  <td class="id">
+                    {{ entry.id }}
+                    <span v-if="isReverseStation" class="reverse-tag">折返</span>
+                  </td>
                   <td>
                     <span :class="['dir', entry.direction]">
                       {{ entry.direction === 'up' ? '↑ 上行' : '↓ 下行' }}
@@ -412,6 +416,17 @@ function eventClass(ev: DispatchLogEntry['event']): string {
   font-family: var(--mono);
   font-weight: 700;
   letter-spacing: 0.02em;
+}
+.sched-table .reverse-tag {
+  display: inline-block;
+  margin-left: 8px;
+  font-family: var(--mono);
+  font-size: 9px;
+  padding: 2px 5px;
+  border-radius: 2px;
+  letter-spacing: 0.1em;
+  background: rgba(240, 194, 76, 0.18);
+  color: var(--sig-amber);
 }
 .sched-table td.m {
   font-family: var(--mono);

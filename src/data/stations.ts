@@ -118,83 +118,90 @@ export const stationTerminal: StationConfig = {
     id: 'terminal',
     name: '终端车站',
     nameEn: 'Northbank Terminal',
-    description: '四股道 + 车挡尽头，上下行客流并发，考验平台分配。',
+    description: '剪式渡线 + 4 股道 + 车挡尽头，列车在此折返。',
     difficulty: 3,
     type: 'terminal',
-    enabled: false,
+    enabled: true,
     scheduleConfig: {
-        peakIntervalRange: [3, 5],
-        offPeakIntervalRange: [6, 10],
+        peakIntervalRange: [4, 6],
+        offPeakIntervalRange: [8, 12],
         peakWindows: [[420, 540], [1020, 1140]],
-        directionRatio: 0.6,
+        directionRatio: 0.5,
     },
     mapData: {
         nodes: {
-            // Entry/Exit
-            "n_in": { "id": "n_in", "x": 50, "y": 330, "type": "endpoint" },
-            "n_out": { "id": "n_out", "x": 50, "y": 370, "type": "endpoint" },
-            
-            // Ladder Switches (Straight Diagonal)
-            "n_sw_1": { "id": "n_sw_1", "x": 250, "y": 330, "type": "switch", "switchState": 0, "signalState": "green" }, // 0=T1, 1=Next
-            "n_sw_2": { "id": "n_sw_2", "x": 350, "y": 360, "type": "switch", "switchState": 0, "signalState": "green" }, // 0=T2, 1=Next
-            "n_sw_3": { "id": "n_sw_3", "x": 450, "y": 390, "type": "switch", "switchState": 0, "signalState": "green" }, // 0=T3, 1=T4
+            // Entry endpoints (画布左外侧)，y 距离压缩到 120 让上下行更靠近
+            "n_L_in_U": { "id": "n_L_in_U", "x": -200, "y": 240, "type": "endpoint" },
+            "n_L_in_D": { "id": "n_L_in_D", "x": -200, "y": 360, "type": "endpoint" },
 
-            // Platforms (x=600 start)
-            "n_p1_start": { "id": "n_p1_start", "x": 600, "y": 200, "type": "connector", "signalState": "green" },
+            // 剪式渡线 4 角点 (groupId 联动：4 个开关一次切换)
+            "n_x1": { "id": "n_x1", "x": 300, "y": 240, "type": "switch", "switchState": 0, "signalState": "green", "groupId": "crossover" },
+            "n_x2": { "id": "n_x2", "x": 300, "y": 360, "type": "switch", "switchState": 1, "signalState": "green", "groupId": "crossover" },
+            "n_x3": { "id": "n_x3", "x": 700, "y": 240, "type": "switch", "switchState": 0, "signalState": "green", "groupId": "crossover" },
+            "n_x4": { "id": "n_x4", "x": 700, "y": 360, "type": "switch", "switchState": 1, "signalState": "green", "groupId": "crossover" },
+
+            // 1-to-2 分岔道岔 (与渡线收尾边同 y，保证收尾边是水平直线)
+            "n_sw_U": { "id": "n_sw_U", "x": 900, "y": 240, "type": "switch", "switchState": 0, "signalState": "green" },
+            "n_sw_D": { "id": "n_sw_D", "x": 900, "y": 360, "type": "switch", "switchState": 0, "signalState": "green" },
+
+            // 站台两端
+            "n_p1_start": { "id": "n_p1_start", "x": 1100, "y": 200, "type": "connector", "signalState": "green" },
             "n_p1_end":   { "id": "n_p1_end",   "x": 2100, "y": 200, "type": "buffer_stop" },
-            
-            "n_p2_start": { "id": "n_p2_start", "x": 600, "y": 280, "type": "connector", "signalState": "green" },
+            "n_p2_start": { "id": "n_p2_start", "x": 1100, "y": 280, "type": "connector", "signalState": "green" },
             "n_p2_end":   { "id": "n_p2_end",   "x": 2100, "y": 280, "type": "buffer_stop" },
-            
-            "n_p3_start": { "id": "n_p3_start", "x": 600, "y": 380, "type": "connector", "signalState": "green" },
-            "n_p3_end":   { "id": "n_p3_end",   "x": 2100, "y": 380, "type": "buffer_stop" },
-            
-            "n_p4_start": { "id": "n_p4_start", "x": 600, "y": 460, "type": "connector", "signalState": "green" },
-            "n_p4_end":   { "id": "n_p4_end",   "x": 2100, "y": 460, "type": "buffer_stop" },
+            "n_p3_start": { "id": "n_p3_start", "x": 1100, "y": 320, "type": "connector", "signalState": "green" },
+            "n_p3_end":   { "id": "n_p3_end",   "x": 2100, "y": 320, "type": "buffer_stop" },
+            "n_p4_start": { "id": "n_p4_start", "x": 1100, "y": 400, "type": "connector", "signalState": "green" },
+            "n_p4_end":   { "id": "n_p4_end",   "x": 2100, "y": 400, "type": "buffer_stop" },
         },
         edges: {
-            // -- INBOUND (Straight Lines) --
-            "e_in": { "id": "e_in", "fromNode": "n_in", "toNode": "n_sw_1", "length": 200, "occupiedBy": null },
-            
-            // Ladder Logic (Top to Bottom)
-            // S1 -> T1 (Up-Left)
-            "e_s1_t1": { "id": "e_s1_t1", "fromNode": "n_sw_1", "toNode": "n_p1_start", "length": 400, "occupiedBy": null, "control1":{x:300,y:330}, "control2":{x:300,y:200} },
-            // S1 -> S2 (Diagonal Down)
-            "e_s1_s2": { "id": "e_s1_s2", "fromNode": "n_sw_1", "toNode": "n_sw_2", "length": 150, "occupiedBy": null },
-            
-            // S2 -> T2 (Up-Left)
-            "e_s2_t2": { "id": "e_s2_t2", "fromNode": "n_sw_2", "toNode": "n_p2_start", "length": 300, "occupiedBy": null, "control1":{x:400,y:360}, "control2":{x:400,y:280} },
-            // S2 -> S3 (Diagonal Down)
-            "e_s2_s3": { "id": "e_s2_s3", "fromNode": "n_sw_2", "toNode": "n_sw_3", "length": 150, "occupiedBy": null },
+            // 进站轨道 (左屏外伸进来)
+            "e_entry_U": { "id": "e_entry_U", "fromNode": "n_L_in_U", "toNode": "n_x1", "length": 500, "occupiedBy": null },
+            "e_entry_D": { "id": "e_entry_D", "fromNode": "n_L_in_D", "toNode": "n_x2", "length": 500, "occupiedBy": null },
 
-            // S3 -> T3 (Up-Left) / T4 (Down-Right)
-            "e_s3_t3": { "id": "e_s3_t3", "fromNode": "n_sw_3", "toNode": "n_p3_start", "length": 200, "occupiedBy": null, "control1":{x:500,y:390}, "control2":{x:500,y:380} },
-            "e_s3_t4": { "id": "e_s3_t4", "fromNode": "n_sw_3", "toNode": "n_p4_start", "length": 200, "occupiedBy": null, "control1":{x:500,y:390}, "control2":{x:500,y:460} },
+            // 剪式渡线
+            // 顶部直行: x1 -> x3 (y=240)
+            "e_x1_x3_str": { "id": "e_x1_x3_str", "fromNode": "n_x1", "toNode": "n_x3", "length": 400, "occupiedBy": null },
+            // 底部直行: x2 -> x4 (y=360)
+            "e_x2_x4_str": { "id": "e_x2_x4_str", "fromNode": "n_x2", "toNode": "n_x4", "length": 400, "occupiedBy": null },
+            // 左上→右下对角: x1 -> x4
+            "e_x1_x4_div": { "id": "e_x1_x4_div", "fromNode": "n_x1", "toNode": "n_x4", "length": 420, "occupiedBy": null, "control1": { x: 500, y: 240 }, "control2": { x: 500, y: 360 } },
+            // 左下→右上对角: x2 -> x3
+            "e_x2_x3_div": { "id": "e_x2_x3_div", "fromNode": "n_x2", "toNode": "n_x3", "length": 420, "occupiedBy": null, "control1": { x: 500, y: 360 }, "control2": { x: 500, y: 240 } },
 
-            // Tracks
-            "t1": { "id": "t1", "fromNode": "n_p1_start", "toNode": "n_p1_end", "length": 1500, "occupiedBy": null, "isPlatform": true },
-            "t2": { "id": "t2", "fromNode": "n_p2_start", "toNode": "n_p2_end", "length": 1500, "occupiedBy": null, "isPlatform": true },
-            "t3": { "id": "t3", "fromNode": "n_p3_start", "toNode": "n_p3_end", "length": 1500, "occupiedBy": null, "isPlatform": true },
-            "t4": { "id": "t4", "fromNode": "n_p4_start", "toNode": "n_p4_end", "length": 1500, "occupiedBy": null, "isPlatform": true },
+            // 渡线收尾 → 分岔道岔 (水平直线，y 全部 240/360)
+            "e_x3_swU": { "id": "e_x3_swU", "fromNode": "n_x3", "toNode": "n_sw_U", "length": 200, "occupiedBy": null },
+            "e_x4_swD": { "id": "e_x4_swD", "fromNode": "n_x4", "toNode": "n_sw_D", "length": 200, "occupiedBy": null },
 
-            // -- OUTBOUND --
-            "t1_rev": { "id": "t1_rev", "fromNode": "n_p1_end", "toNode": "n_p1_start", "length": 1500, "occupiedBy": null },
-            "t2_rev": { "id": "t2_rev", "fromNode": "n_p2_end", "toNode": "n_p2_start", "length": 1500, "occupiedBy": null },
-            "t3_rev": { "id": "t3_rev", "fromNode": "n_p3_end", "toNode": "n_p3_start", "length": 1500, "occupiedBy": null },
-            "t4_rev": { "id": "t4_rev", "fromNode": "n_p4_end", "toNode": "n_p4_start", "length": 1500, "occupiedBy": null },
-            
-            "t1_out": { "id": "t1_out", "fromNode": "n_p1_start", "toNode": "n_sw_1", "length": 400, "occupiedBy": null },
-            "t2_out": { "id": "t2_out", "fromNode": "n_p2_start", "toNode": "n_sw_2", "length": 300, "occupiedBy": null },
-            "t3_out": { "id": "t3_out", "fromNode": "n_p3_start", "toNode": "n_sw_3", "length": 200, "occupiedBy": null },
-            "t4_out": { "id": "t4_out", "fromNode": "n_p4_start", "toNode": "n_sw_3", "length": 200, "occupiedBy": null },
-            
-            "e_s3_s2_rev": { "id": "e_s3_s2_rev", "fromNode": "n_sw_3", "toNode": "n_sw_2", "length": 150, "occupiedBy": null },
-            "e_s2_s1_rev": { "id": "e_s2_s1_rev", "fromNode": "n_sw_2", "toNode": "n_sw_1", "length": 150, "occupiedBy": null },
-            "e_out": { "id": "e_out", "fromNode": "n_sw_1", "toNode": "n_out", "length": 200, "occupiedBy": null }
+            // 1-to-2 分岔 → 站台头
+            "e_swU_T1": { "id": "e_swU_T1", "fromNode": "n_sw_U", "toNode": "n_p1_start", "length": 220, "occupiedBy": null, "control1": { x: 1000, y: 240 }, "control2": { x: 1000, y: 200 } },
+            "e_swU_T2": { "id": "e_swU_T2", "fromNode": "n_sw_U", "toNode": "n_p2_start", "length": 220, "occupiedBy": null, "control1": { x: 1000, y: 240 }, "control2": { x: 1000, y: 280 } },
+            "e_swD_T3": { "id": "e_swD_T3", "fromNode": "n_sw_D", "toNode": "n_p3_start", "length": 220, "occupiedBy": null, "control1": { x: 1000, y: 360 }, "control2": { x: 1000, y: 320 } },
+            "e_swD_T4": { "id": "e_swD_T4", "fromNode": "n_sw_D", "toNode": "n_p4_start", "length": 220, "occupiedBy": null, "control1": { x: 1000, y: 360 }, "control2": { x: 1000, y: 400 } },
+
+            // 站台轨道 (终点车挡)
+            "t1": { "id": "t1", "fromNode": "n_p1_start", "toNode": "n_p1_end", "length": 1000, "occupiedBy": null, "isPlatform": true },
+            "t2": { "id": "t2", "fromNode": "n_p2_start", "toNode": "n_p2_end", "length": 1000, "occupiedBy": null, "isPlatform": true },
+            "t3": { "id": "t3", "fromNode": "n_p3_start", "toNode": "n_p3_end", "length": 1000, "occupiedBy": null, "isPlatform": true },
+            "t4": { "id": "t4", "fromNode": "n_p4_start", "toNode": "n_p4_end", "length": 1000, "occupiedBy": null, "isPlatform": true },
         },
         platforms: [
-            { id: "p1", label: "1 (Term)", rect: { x: 600, y: 220, w: 1500, h: 40 } },
-            { id: "p2", label: "2 (Term)", rect: { x: 600, y: 400, w: 1500, h: 40 } }
+            { id: "p1", label: "1 (Term)", rect: { x: 1100, y: 220, w: 1000, h: 40 } },
+            { id: "p2", label: "2 (Term)", rect: { x: 1100, y: 340, w: 1000, h: 40 } }
+        ],
+        switchGroups: [
+            // 剪式渡线联动：mode 0 = 直连(各自原线)，mode 1 = 交叉(上下互换)
+            // 每个成员的 states[mode] 是该成员节点在该模式下应有的 switchState
+            {
+                id: 'crossover',
+                masterNodeId: 'n_x1',
+                members: [
+                    { nodeId: 'n_x1', states: [0, 1] },  // 出向: 0=x3_str(straight), 1=x4_div(cross)
+                    { nodeId: 'n_x2', states: [1, 0] },  // 出向: 0=x3_div, 1=x4_str → 反过来
+                    { nodeId: 'n_x3', states: [0, 1] },  // 入向: 0=x1_str(back to top), 1=x2_div
+                    { nodeId: 'n_x4', states: [1, 0] },  // 入向: 0=x1_div, 1=x2_str → 反过来
+                ]
+            }
         ]
     }
 };

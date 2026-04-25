@@ -121,7 +121,19 @@ export class PhysicsEngine {
 
       // Special Rule: Platform Stop (Auto-Service)
       if (currentEdge.isPlatform && train.lastServicedEdgeId !== train.currentEdgeId) {
-        train.position = dir === 1 ? currentEdge.length : 0
+        // 终端站台末端是 buffer_stop，需要保留安全距离避免视觉撞挡
+        const endNode = map.nodes[currentEdge.toNode]
+        const startNode = map.nodes[currentEdge.fromNode]
+        const SAFETY = 60
+        const stopPos =
+          dir === 1
+            ? endNode?.type === 'buffer_stop'
+              ? currentEdge.length - SAFETY
+              : currentEdge.length
+            : startNode?.type === 'buffer_stop'
+              ? SAFETY
+              : 0
+        train.position = stopPos
         train.speed = 0
         train.state = 'stopped'
 

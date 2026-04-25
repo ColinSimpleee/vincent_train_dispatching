@@ -3,10 +3,25 @@ export interface RailNode {
   x: number;
   y: number;
   type: 'switch' | 'endpoint' | 'connector' | 'buffer_stop';
-  
+
   // Phase 3: Control States
   switchState?: number; // Index of active outgoing edge (0..N-1)
   signalState?: 'red' | 'green'; // For signals
+
+  // 联动开关组（如剪式渡线 4 角点）：同 groupId 的开关被一次操作整体切换
+  groupId?: string;
+}
+
+// 开关组：一次操作切换所有成员的 switchState
+// states[i] 表示组处于第 i 个模式时该成员节点的 switchState
+export interface SwitchGroupMember {
+  nodeId: string;
+  states: number[];
+}
+export interface SwitchGroup {
+  id: string;
+  masterNodeId: string;        // 在键盘模式下唯一持有按键的节点
+  members: SwitchGroupMember[];
 }
 
 export interface RailEdge {
@@ -34,6 +49,7 @@ export interface RailMap {
   nodes: Record<string, RailNode>;
   edges: Record<string, RailEdge>;
   platforms: PlatformZone[]; // Visual zones
+  switchGroups?: SwitchGroup[];
 }
 
 // Visual Models
