@@ -28,7 +28,14 @@
       "Bash(bash \"C:/Users/it-si/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.5/skills/brainstorming/scripts/start-server.sh\" --project-dir \"E:/列车调度游戏\")",
       "Bash(npx vue-tsc:*)",
       "Bash(npx vitest:*)",
-      "Bash(npx tsx:*)"
+      "Bash(npx tsx:*)",
+      "Bash(npm run:*)",
+      "mcp__plugin_figma_figma__get_design_context",
+      "Bash(python -c \":*)",
+      "Bash(npm install:*)",
+      "mcp__plugin_figma_figma__get_screenshot",
+      "Bash(grep -E \"\\\\\\\\.json|POWER\")",
+      "Bash(find /c/Users/it-si/.claude/plugins/cache -name \"*.json\" -type f -exec grep -l \"skill\" {} \\\\;)"
     ]
   }
 }

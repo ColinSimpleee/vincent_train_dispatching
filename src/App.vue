@@ -16,6 +16,9 @@ import type {
 import { tickToTime } from './core/utils'
 import type { StationConfig } from './data/stations'
 import ScheduleModal from './components/ScheduleModal.vue'
+import Toast from './components/Toast.vue'
+import type { ToastEntry, ToastKind } from './components/Toast.vue'
+import Onboarding from './components/Onboarding.vue'
 import { useDispatchLog } from './composables/useDispatchLog'
 import type { DelaySpread } from './core/types'
 import { SCHEDULE_VISIBLE_WINDOW } from './core/constants'
@@ -47,12 +50,22 @@ const map = reactive<RailMap>({ nodes: {}, edges: {}, platforms: [] })
 const trains = reactive<TrainPhysics[]>([])
 
 const keyboardMode = ref(false)
-const showModeToast = ref(false)
 const keyMappings = ref<KeyboardControlConfig[]>([])
 
-// Game Control State
-const showActionToast = ref(false)
-const actionToastMessage = ref('')
+// Toast 系统：栈式展示，自动消失
+const toasts = ref<ToastEntry[]>([])
+let toastIdCounter = 0
+
+function pushToast(msg: string, kind: ToastKind = 'action', duration = 2400) {
+  const id = ++toastIdCounter
+  toasts.value.push({ id, msg, kind })
+  setTimeout(() => {
+    toasts.value = toasts.value.filter((t) => t.id !== id)
+  }, duration)
+}
+
+// Onboarding 控制
+const showOnboarding = ref(false)
 
 // ScheduleManager 实例（在 handleStationSelect 中初始化）
 const scheduleManager = shallowRef<ScheduleManager | null>(null)
@@ -192,7 +205,12 @@ function processExitingTrains(): void {
 
 // --- Loop ---
 function loop(timestamp: number) {
-  if (view.value !== 'game') return
+  // 视图切回首页时把循环干净地停下，而不是悄悄留下一个失效的 animationFrameId，
+  // 否则下次进游戏 startSim 看到非空 ID 就会跳过 requestAnimationFrame，时间不走
+  if (view.value !== 'game') {
+    animationFrameId = null
+    return
+  }
 
   if (!lastTime) lastTime = timestamp
   const rawDt = (timestamp - lastTime) / 1000
@@ -218,8 +236,9 @@ function loop(timestamp: number) {
       }
     } catch (e) {
       console.error(e)
-      cancelAnimationFrame(animationFrameId!)
-      showToast(`游戏结束: ${e instanceof Error ? e.message : '未知错误'}`)
+      if (animationFrameId !== null) cancelAnimationFrame(animationFrameId)
+      animationFrameId = null
+      showToast(`游戏结束: ${e instanceof Error ? e.message : '未知错误'}`, 'error')
       return
     }
 
@@ -243,11 +262,10 @@ function loop(timestamp: number) {
 }
 
 function startSim() {
-  if (!animationFrameId) {
-    lastTime = 0
-    accumulator = 0
-    animationFrameId = requestAnimationFrame(loop)
-  }
+  if (animationFrameId !== null) cancelAnimationFrame(animationFrameId)
+  lastTime = 0
+  accumulator = 0
+  animationFrameId = requestAnimationFrame(loop)
 }
 
 function setGameSpeed(s: number) {
@@ -328,6 +346,7 @@ function handleStationSelect(config: StationConfig) {
   modalPage.value = 0
 
   view.value = 'game'
+  showOnboarding.value = true
   startSim()
 }
 
@@ -342,6 +361,8 @@ function goHome() {
   lastNonZeroSpeed.value = 1
   showScheduleModal.value = false
   modalPage.value = 0
+  showOnboarding.value = false
+  toasts.value = []
   platformStopRecorded.clear()
   clearLogs()
 }
@@ -349,6 +370,10 @@ function goHome() {
 // --- Actions ---
 function handleSelect(id: string) {
   selectedTrainId.value = id
+}
+
+function onPausedAction() {
+  pushToast('暂停中：信号与道岔已锁定', 'error', 1800)
 }
 
 function handleTrainAction(payload: { id: string; action: string }) {
@@ -407,39 +432,59 @@ function handleDepartAction(train: TrainPhysics): void {
 
   train.passengerState = undefined
 
-  // Case 1: Already on exit track
+  const targetNode = getExitNodeId()
+
+  // Case 1: 已经在出站轨道 — 沿当前边走到出口节点
   if (isExitingEdge(current)) {
     const edge = map.edges[current]
-    train.path = edge ? safeFindPath(edge.toNode, 'n_out') : []
+    train.path = edge ? safeFindPath(edge.toNode, targetNode) : []
+    if (train.path.length === 0) {
+      console.error(`[DEPART] ${train.id} on exit edge ${current} but no path to ${targetNode}`)
+    }
     startTrainMoving(train, 80)
     return
   }
 
-  // Case 2: Terminal turnaround
+  // Case 2: 终端站折返 — 经 t*_rev 调头
   if (map.edges[reverse]) {
     const revEdge = map.edges[reverse]
     train.currentEdgeId = reverse
     train.position = 0
-    const targetNode = getExitNodeId()
-    train.path = safeFindPath(revEdge.toNode, targetNode)
+    const route = safeFindPath(revEdge.toNode, targetNode)
+    if (route.length === 0) {
+      console.error(`[DEPART] ${train.id} on reverse ${reverse} but no path to ${targetNode}`)
+    }
+    train.path = route
     startTrainMoving(train, 60)
     return
   }
 
-  // Case 3: Standard departure via outbound edge
+  // Case 3: 标准出站 — 经 t*_out 走到合并点再到出口
+  // 关键：把 outbound 边本身放在 path 最前面，否则 path 与实际路径错位，
+  //      shift 对不上，列车依赖 resolveNextEdge 兜底，BFS 一旦返回空就直接停车
   if (map.edges[outbound]) {
     const outEdge = map.edges[outbound]
-    const targetNode = getExitNodeId()
-    train.path = safeFindPath(outEdge.toNode, targetNode)
+    const route = safeFindPath(outEdge.toNode, targetNode)
+    if (route.length === 0) {
+      console.error(
+        `[DEPART] ${train.id} departing via ${outbound} but no path from ${outEdge.toNode} to ${targetNode}`,
+      )
+    }
+    train.path = [outbound, ...route]
     startTrainMoving(train, 80)
     return
   }
 
-  // Case 4: Fallback - find path from current position
+  // Case 4: 兜底 — 从当前边末端找路径
   const currEdge = map.edges[current]
   if (currEdge) {
-    const targetNode = getExitNodeId()
-    train.path = safeFindPath(currEdge.toNode, targetNode)
+    const route = safeFindPath(currEdge.toNode, targetNode)
+    if (route.length === 0) {
+      console.error(
+        `[DEPART] ${train.id} fallback path from ${currEdge.toNode} to ${targetNode} returned empty`,
+      )
+    }
+    train.path = route
     startTrainMoving(train, 60)
     return
   }
@@ -488,20 +533,17 @@ function handleAction(action: TrainAction) {
 // --- Keyboard Control Functions ---
 function toggleKeyboardMode() {
   keyboardMode.value = !keyboardMode.value
-  showModeToast.value = true
-  setTimeout(() => {
-    showModeToast.value = false
-  }, 2000)
+  pushToast(keyboardMode.value ? '切换至键盘模式' : '切换至鼠标模式', 'mode')
 }
 
 function togglePause() {
   if (gameSpeed.value === 0) {
     gameSpeed.value = lastNonZeroSpeed.value
-    showToast('游戏继续')
+    pushToast('游戏继续', 'action')
   } else {
     lastNonZeroSpeed.value = gameSpeed.value
     gameSpeed.value = 0
-    showToast('游戏已暂停')
+    pushToast('游戏已暂停', 'action')
   }
 }
 
@@ -524,12 +566,8 @@ function navigateTrain(direction: 1 | -1) {
   selectedTrainId.value = allTrainIds[nextIndex] ?? null
 }
 
-function showToast(message: string) {
-  actionToastMessage.value = message
-  showActionToast.value = true
-  setTimeout(() => {
-    showActionToast.value = false
-  }, 2000)
+function showToast(message: string, kind: ToastKind = 'action') {
+  pushToast(message, kind)
 }
 
 // 倍速键映射
@@ -640,6 +678,12 @@ function handleKeyPress(event: KeyboardEvent) {
   const node = map.nodes[mapping.nodeId]
   if (!node) return
 
+  // 暂停期间锁定信号灯与道岔
+  if (gameSpeed.value === 0) {
+    onPausedAction()
+    return
+  }
+
   if (mapping.type === 'switch') {
     const outgoingEdges = Object.values(map.edges).filter((e) => e.fromNode === mapping.nodeId)
     if (outgoingEdges.length === 0) return
@@ -736,58 +780,82 @@ onUnmounted(() => {
   <StartScreen v-if="view === 'start'" @select="handleStationSelect" />
 
   <!-- Game Screen -->
-  <div class="app-layout" v-if="view === 'game'">
-    <!-- Left -->
-    <aside class="layout-side">
+  <div class="game" v-else>
+    <!-- TopBar -->
+    <div class="topbar">
+      <div class="top-left">
+        <button class="back-btn" @click="goHome">← MENU</button>
+        <div class="top-brand">Headway <em>/ dispatcher</em></div>
+      </div>
+      <div class="top-center">
+        <span class="station-title">STATION · <b>{{ activeStation?.name }}</b></span>
+      </div>
+      <div class="top-right">
+        <div class="top-clock">{{ gameTime }}{{ gameSpeed === 0 ? '  ■' : '' }}</div>
+        <button class="sched-btn" @click="showScheduleModal = true">
+          <span class="dot" />
+          时刻表 / SCHEDULE
+        </button>
+      </div>
+    </div>
+
+    <!-- Game body -->
+    <div class="game-body">
       <LeftPanel
         :queue="waitingQueue"
         :trains="trains"
         :selectedId="selectedTrainId"
-        :onSelect="handleSelect"
         :gameStartTime="gameStartTime"
         :currentTick="tick"
         :schedule-manager="scheduleManager"
+        @select="handleSelect"
       />
-    </aside>
 
-    <!-- Center -->
-    <main class="layout-center">
-      <div class="map-header">
-        <div class="back-btn" @click="goHome">&larr; MENU</div>
-        <div class="schedule-btn" @click="showScheduleModal = true">时刻表</div>
-        <h2>{{ activeStation?.name || 'GAME' }} - CONTROL CENTER</h2>
-      </div>
-      <div class="map-viewport">
+      <div class="canvas-wrap" :class="{ paused: gameSpeed === 0 }">
         <GameCanvas
           :map="map"
           :trains="trains"
           :keyboardMode="keyboardMode"
           :keyMappings="keyMappings"
+          :selectedTrainId="selectedTrainId"
+          :paused="gameSpeed === 0"
           @train-action="handleTrainAction"
+          @select="handleSelect"
+          @paused-action="onPausedAction"
         />
-      </div>
-    </main>
 
-    <!-- Right -->
-    <aside class="layout-side">
+        <div
+          class="mode-badge"
+          :class="keyboardMode ? 'keyboard' : 'mouse'"
+          @click="toggleKeyboardMode"
+        >
+          <span class="dot" />
+          {{ keyboardMode ? 'KEYBOARD MODE' : 'MOUSE MODE' }}
+          <span class="hint">SPACE 切换</span>
+        </div>
+
+        <div class="legend">
+          <span class="item"><span class="swatch" />ACTIVE</span>
+          <span class="item"><span class="swatch amber" />BOARDING</span>
+          <span class="item"><span class="swatch blue" />UP</span>
+          <span class="item"><span class="swatch red" />STOP</span>
+        </div>
+
+        <div v-if="gameSpeed === 0" class="paused-watermark">
+          <div class="bar">◼ PAUSED · TIME HELD</div>
+          <div class="txt">PAUSED</div>
+        </div>
+      </div>
+
       <RightPanel
         :gameTime="gameTime"
         :selectedTrain="selectedTrain"
-        :onAction="handleAction"
         :gameSpeed="gameSpeed"
-        :onSpeedChange="setGameSpeed"
         :keyboardMode="keyboardMode"
+        :currentTick="tick"
+        @action="handleAction"
+        @speed-change="setGameSpeed"
       />
-    </aside>
-
-    <!-- Mode Toast Notification -->
-    <div v-if="showModeToast" class="mode-toast">
-      {{ keyboardMode ? '已切换为键盘控制模式' : '已切换为鼠标控制模式' }}
-    </div>
-
-    <!-- Action Toast Notification -->
-    <div v-if="showActionToast" class="action-toast">
-      {{ actionToastMessage }}
     </div>
 
     <ScheduleModal
@@ -805,132 +873,257 @@ onUnmounted(() => {
       @speed-change="setGameSpeed"
       @update:modalPage="modalPage = $event"
     />
+
+    <Onboarding v-if="showOnboarding" @close="showOnboarding = false" />
   </div>
+
+  <Toast :toasts="toasts" />
 </template>
 
 <style scoped>
-.app-layout {
+.game {
   display: grid;
-  grid-template-columns: 280px 1fr 300px;
+  grid-template-rows: 56px 1fr;
   height: 100%;
-  min-height: 400px;
   width: 100%;
   min-width: 900px;
-  background: #121212;
-  overflow: hidden;
-  font-family: 'Segoe UI', 'PingFang SC', sans-serif;
+  background: var(--bg);
 }
 
-.layout-side {
-  height: 100%;
-  overflow: hidden;
-  z-index: 10;
-  box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
-}
-
-.layout-center {
-  display: flex;
-  flex-direction: column;
-  background: #000;
-  position: relative;
-}
-
-.map-header {
-  height: 40px;
-  background: #1a1a1a;
-  border-bottom: 1px solid #333;
+.topbar {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  background: rgba(10, 10, 10, 0.88);
+  backdrop-filter: saturate(180%) blur(14px);
+  border-bottom: 1px solid var(--divider);
   position: relative;
+  z-index: 20;
+}
+.top-left,
+.top-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.top-center {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
 }
 
 .back-btn {
-  position: absolute;
-  left: 20px;
-  color: #777;
+  background: transparent;
+  border: 1px solid var(--divider-2);
+  color: var(--fg-sec);
+  font-family: var(--mono);
   font-size: 12px;
-  cursor: pointer;
-  letter-spacing: 2px;
-  padding: 5px 10px;
-  border: 1px solid #333;
-  border-radius: 4px;
-  transition: all 0.2s;
-  z-index: 20;
+  padding: 6px 12px;
+  border-radius: 2px;
+  letter-spacing: 0.08em;
+  transition: all 200ms var(--ease);
 }
-
 .back-btn:hover {
-  color: #fff;
-  border-color: #555;
-  background: #222;
+  color: var(--fg);
+  border-color: var(--fg-sec);
 }
 
-.schedule-btn {
-  position: absolute;
-  right: 20px;
-  color: #777;
+.top-brand {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.top-brand em {
+  color: var(--accent);
+  font-style: normal;
+  font-weight: 400;
+}
+
+.station-title {
+  font-family: var(--mono);
   font-size: 12px;
-  cursor: pointer;
-  letter-spacing: 2px;
-  padding: 5px 10px;
-  border: 1px solid #333;
-  border-radius: 4px;
-  transition: all 0.2s;
-  z-index: 20;
+  color: var(--fg-sec);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
-.schedule-btn:hover {
-  color: #fff;
-  border-color: #555;
-  background: #222;
+.station-title b {
+  color: var(--fg);
+  font-weight: 400;
 }
 
-.map-header h2 {
-  color: #555;
-  font-size: 14px;
-  letter-spacing: 5px;
-  margin: 0;
+.top-clock {
+  font-family: var(--mono);
+  font-size: 15px;
+  color: var(--fg);
+  letter-spacing: 0.06em;
+  padding: 0 16px;
+  border-left: 1px solid var(--divider);
+  height: 56px;
+  display: flex;
+  align-items: center;
 }
 
-.map-viewport {
-  flex: 1;
+.sched-btn {
+  font-family: var(--ui);
+  background: transparent;
+  border: 1px solid var(--divider-2);
+  color: var(--fg);
+  padding: 7px 14px;
+  border-radius: 2px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  transition: all 200ms var(--ease);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.sched-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.sched-btn .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+
+.game-body {
+  display: grid;
+  grid-template-columns: 340px 1fr 340px;
+  height: 100%;
+  overflow: hidden;
+}
+
+.canvas-wrap {
   position: relative;
-  min-height: 200px;
+  background: #08080a;
+  overflow: hidden;
+}
+.canvas-wrap.paused {
+  filter: saturate(0.25) brightness(0.7);
+  transition: filter 400ms var(--ease);
+}
+.canvas-wrap::before {
+  content: '';
+  position: absolute;
+  inset: 0;
   background-image:
-    linear-gradient(#1a1a1a 1px, transparent 1px),
-    linear-gradient(90deg, #1a1a1a 1px, transparent 1px);
-  background-size: 50px 50px;
-  background-color: #0d0d0d;
+    linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
 }
 
-.mode-toast {
+.mode-badge {
   position: absolute;
-  top: 60px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.85);
-  color: white;
-  padding: 14px 28px;
-  border-radius: 6px;
-  font-size: 20px;
-  font-weight: 500;
-  z-index: 9999;
-  pointer-events: none;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  left: 16px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: rgba(10, 10, 10, 0.76);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--divider-2);
+  border-radius: 2px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg-sec);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  z-index: 5;
+  cursor: pointer;
+}
+.mode-badge .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+.mode-badge.mouse .dot {
+  background: var(--sig-blue);
+  box-shadow: 0 0 6px var(--sig-blue);
+}
+.mode-badge .hint {
+  color: var(--fg-ter);
+  margin-left: 8px;
+  padding-left: 8px;
+  border-left: 1px solid var(--divider-2);
 }
 
-.action-toast {
+.legend {
   position: absolute;
-  top: 120px;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  gap: 12px;
+  background: rgba(10, 10, 10, 0.72);
+  backdrop-filter: blur(10px);
+  padding: 8px 12px;
+  border: 1px solid var(--divider);
+  border-radius: 2px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--fg-ter);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  z-index: 5;
+}
+.legend .item {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.legend .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.legend .swatch.blue {
+  background: var(--sig-blue);
+}
+.legend .swatch.amber {
+  background: var(--sig-amber);
+}
+.legend .swatch.red {
+  background: var(--sig-red);
+}
+
+.paused-watermark {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.paused-watermark .txt {
+  font-size: 22vh;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  color: rgba(241, 91, 91, 0.18);
+  font-family: var(--font);
+  mix-blend-mode: screen;
+  line-height: 1;
+}
+.paused-watermark .bar {
+  position: absolute;
+  top: 12px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(26, 115, 140, 0.9);
-  color: white;
-  padding: 12px 24px;
-  border-radius: 6px;
-  font-size: 18px;
-  font-weight: 500;
-  z-index: 9999;
-  pointer-events: none;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  padding: 6px 14px;
+  background: rgba(241, 91, 91, 0.18);
+  border: 1px solid rgba(241, 91, 91, 0.5);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--sig-red);
+  letter-spacing: 0.24em;
 }
 </style>

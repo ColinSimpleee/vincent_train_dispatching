@@ -1,5 +1,5 @@
 {
-  "name": "train-dispatch-game",
+  "name": "headway",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -14,7 +14,6 @@
     "format": "prettier --write --experimental-cli src/"
   },
   "dependencies": {
-    "@fontsource/exo-2": "^5.2.8",
     "pinia": "^3.0.4",
     "vue": "^3.5.26"
   },

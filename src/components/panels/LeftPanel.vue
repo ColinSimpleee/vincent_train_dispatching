@@ -5,462 +5,424 @@ import type { ScheduleEntry, DelaySpread } from '../../core/types';
 import type { ScheduleManager } from '../../core/ScheduleManager';
 import { tickToTime as tickToTimeUtil } from '../../core/utils';
 
+type StatusKey =
+  | 'waiting'
+  | 'arriving'
+  | 'boarding'
+  | 'ready'
+  | 'departing'
+  | 'running'
+  | 'stopped';
+
+const STATUS_ZH: Record<StatusKey, string> = {
+  waiting: '等待进站',
+  arriving: '正在进站',
+  boarding: '停站中',
+  ready: '可以出站',
+  departing: '正在出站',
+  running: '运行中',
+  stopped: '停车',
+};
+
+interface DelayInfo {
+  text: string;
+  cls: 'early' | 'ontime' | 'late';
+}
+
+interface SpreadInfo {
+  text: string;
+  cls: 'improved' | 'neutral' | 'worsened';
+  delta: number;
+}
+
+interface RowItem {
+  id: string;
+  statusKey: StatusKey;
+  loc: string;
+  eta: string;
+  delay: DelayInfo;
+  spread: SpreadInfo | null;
+}
+
 const props = defineProps<{
   queue: ScheduleEntry[];
   trains: TrainPhysics[];
   scheduleManager: ScheduleManager | null;
-  onSelect: (id: string) => void;
   selectedId: string | null;
   gameStartTime?: { hours: number; minutes: number; seconds: number };
   currentTick?: number;
 }>();
 
+defineEmits<{
+  (e: 'select', id: string): void;
+}>();
+
+const TICKS_PER_MIN = 3600;
+const DEPARTURE_BUFFER_TICKS = 90 * 60;
+
 function tickToTime(tick: number): string {
-  const startTime = props.gameStartTime || { hours: 8, minutes: 0, seconds: 0 };
+  const startTime = props.gameStartTime ?? { hours: 8, minutes: 0, seconds: 0 };
   return tickToTimeUtil(tick, startTime);
 }
 
-interface PunctualityInfo {
-  text: string;
-  color: string;
-  minutes: number;
-  isDurationMode: boolean; // true = show "预计x分钟后出站", false = show punctuality
+function tickToHHMM(tick: number): string {
+  return tickToTime(tick).slice(0, 5);
 }
-
-interface TrainStatusInfo {
-  status: string;
-  statusColor: string;
-  location: string;
-  estimatedTime: string;
-  timeLabel: string;
-  punctuality: PunctualityInfo;
-}
-
-const TICKS_PER_GAME_SECOND = 60;
-const TICKS_PER_GAME_MINUTE = TICKS_PER_GAME_SECOND * 60;
-const DEPARTURE_BUFFER_TICKS = 90 * TICKS_PER_GAME_SECOND; // 90 game-seconds
-
-const DEFAULT_PUNCTUALITY: PunctualityInfo = { text: '准点', color: '#f1c40f', minutes: 0, isDurationMode: false };
 
 function isEnteringEdge(edgeId: string): boolean {
-  return edgeId.includes('entry') ||
-         edgeId.includes('_L_t') ||
-         edgeId.includes('_R_t') ||
-         edgeId.includes('e_L_') ||
-         edgeId.includes('e_R_');
+  return (
+    edgeId.includes('entry') ||
+    edgeId.includes('_L_t') ||
+    edgeId.includes('_R_t') ||
+    edgeId.startsWith('e_L_') ||
+    edgeId.startsWith('e_R_') ||
+    edgeId === 'e_in'
+  );
 }
 
 function isExitingEdge(edgeId: string): boolean {
-  return edgeId.includes('exit') || edgeId.includes('out');
+  return edgeId.endsWith('_out') || edgeId.includes('exit') || edgeId === 'e_out';
 }
 
 function isPlatformEdge(edgeId: string): boolean {
   return /^t\d+$/.test(edgeId);
 }
 
-function getStatusForQueuedTrain(queueTrain: ScheduleEntry): TrainStatusInfo {
-  const arriveTick = queueTrain.scheduledArriveTick ?? 0;
-  return {
-    status: '等待进站',
-    statusColor: '#f39c12',
-    location: '等待区',
-    estimatedTime: tickToTime(arriveTick),
-    timeLabel: '预计进站',
-    punctuality: getPunctuality(arriveTick)
-  };
-}
-
-function getMinutesUntilDeparture(train: TrainPhysics): number {
-  const currentTick = props.currentTick ?? 0;
-  const arrivalTick = train.arrivalTick ?? currentTick;
-  const stopDuration = train.stopDuration ?? 0;
-  const stopBuffer = train.stopBuffer ?? 0;
-  const remainingTicks = (arrivalTick + stopDuration + stopBuffer) - currentTick;
-  return Math.max(0, Math.ceil(remainingTicks / TICKS_PER_GAME_MINUTE));
-}
-
-function getDeparturePunctuality(train: TrainPhysics): PunctualityInfo {
-  const currentTick = props.currentTick ?? 0;
-  const scheduledArriveTick = train.scheduledArriveTick ?? 0;
-  const stopDuration = train.stopDuration ?? 0;
-  // Scheduled departure = scheduled arrive + stop duration + 90 game-seconds
-  const scheduledDepartureTick = scheduledArriveTick + stopDuration + DEPARTURE_BUFFER_TICKS;
-  const diffTicks = currentTick - scheduledDepartureTick;
-  const diffMinutes = Math.round(diffTicks / TICKS_PER_GAME_MINUTE);
-
-  if (diffMinutes < -1) {
-    return { text: `早点 ${Math.abs(diffMinutes)}'`, color: '#2ecc71', minutes: diffMinutes, isDurationMode: false };
-  }
-  if (diffMinutes > 1) {
-    return { text: `晚点 ${diffMinutes}'`, color: '#e74c3c', minutes: diffMinutes, isDurationMode: false };
-  }
-  return { text: '准点', color: '#f1c40f', minutes: 0, isDurationMode: false };
-}
-
-function getDurationPunctuality(train: TrainPhysics): PunctualityInfo {
-  // 列车尚未到达站台（arrivalTick 未设置），不显示出站倒计时
-  if (!train.arrivalTick) {
-    return { text: '进站中...', color: '#3498db', minutes: 0, isDurationMode: true };
-  }
-  const minutes = getMinutesUntilDeparture(train);
-  const text = minutes <= 0 ? '即将出站' : `预计${minutes}分钟后出站`;
-  return { text, color: '#3498db', minutes, isDurationMode: true };
-}
-
-function getStatusForActiveTrain(train: TrainPhysics): TrainStatusInfo {
-  const edgeId = train.currentEdgeId || '';
-  const isMoving = train.state === 'moving' || train.speed > 0;
-  const isAtPlatform = train.passengerState === 'BOARDING' ||
-                       (train.state === 'stopped' && isPlatformEdge(edgeId));
-
-  // 可以出站：上客完成，准备出发 → 显示真实准点情况
-  if (train.passengerState === 'READY' && train.state === 'stopped' && isPlatformEdge(edgeId)) {
-    return {
-      status: '可以出站',
-      statusColor: '#2ecc71',
-      location: getTrainLocation(train),
-      estimatedTime: getScheduledDepartTime(train),
-      timeLabel: '预计出站',
-      punctuality: getDeparturePunctuality(train)
-    };
-  }
-
-  // 停站中（上客中）→ 显示"预计x分钟后出站"
-  if (isAtPlatform) {
-    return {
-      status: '停站中',
-      statusColor: '#e74c3c',
-      location: getTrainLocation(train),
-      estimatedTime: getScheduledDepartTime(train),
-      timeLabel: '预计出站',
-      punctuality: getDurationPunctuality(train)
-    };
-  }
-
-  if (isMoving) {
-    // 正在进站
-    if (isEnteringEdge(edgeId)) {
-      return {
-        status: '正在进站',
-        statusColor: '#3498db',
-        location: getTrainLocation(train),
-        estimatedTime: getScheduledArriveTime(train),
-        timeLabel: '预计进站',
-        punctuality: getDurationPunctuality(train)
-      };
-    }
-    if (isExitingEdge(edgeId)) {
-      return {
-        status: '正在出站',
-        statusColor: '#2ecc71',
-        location: getTrainLocation(train),
-        estimatedTime: getScheduledDepartTime(train),
-        timeLabel: '预计出站',
-        punctuality: DEFAULT_PUNCTUALITY
-      };
-    }
-    return {
-      status: '运行中',
-      statusColor: '#3498db',
-      location: getTrainLocation(train),
-      estimatedTime: getScheduledArriveTime(train),
-      timeLabel: '预计到达',
-      punctuality: DEFAULT_PUNCTUALITY
-    };
-  }
-
-  if (train.state === 'stopped') {
-    return {
-      status: '停车',
-      statusColor: '#e67e22',
-      location: getTrainLocation(train),
-      estimatedTime: tickToTime(props.currentTick ?? 0),
-      timeLabel: '当前时间',
-      punctuality: DEFAULT_PUNCTUALITY
-    };
-  }
-
-  return getDefaultStatus();
-}
-
-function getDefaultStatus(): TrainStatusInfo {
-  return {
-    status: '待命',
-    statusColor: '#95a5a6',
-    location: '-',
-    estimatedTime: '--:--:--',
-    timeLabel: '-',
-    punctuality: DEFAULT_PUNCTUALITY
-  };
-}
-
-function getTrainStatus(trainId: string): TrainStatusInfo {
-  const activeTrain = props.trains?.find(t => t.id === trainId);
-  const queueTrain = props.queue?.find(q => q.id === trainId);
-
-  if (!activeTrain && queueTrain) {
-    return getStatusForQueuedTrain(queueTrain);
-  }
-
-  if (activeTrain) {
-    return getStatusForActiveTrain(activeTrain);
-  }
-
-  return getDefaultStatus();
-}
-
-// Get train location description
-function getTrainLocation(train: TrainPhysics): string {
+function getTrainLoc(train: TrainPhysics): string {
   const edge = train.currentEdgeId;
-  if (edge.includes('entry')) return '进站线路';
-  if (edge.includes('exit')) return '出站线路';
-  const platformMatch = edge.match(/^t(\d+)$/);
-  if (platformMatch) {
-    return `${platformMatch[1]}站台`;
-  }
+  const m = edge.match(/^t(\d+)$/);
+  if (m) return `${m[1]} 站台`;
+  if (isEnteringEdge(edge)) return '进站线路';
+  if (isExitingEdge(edge)) return '出站线路';
   return '线路中';
 }
 
-// 从时刻表获取计划到站时间（静态）
-function getScheduledArriveTime(train: TrainPhysics): string {
-  if (train.scheduledArriveTick != null) {
-    return tickToTime(train.scheduledArriveTick);
+function inferStatusKey(train: TrainPhysics): StatusKey {
+  const edge = train.currentEdgeId;
+  const onPlatform = isPlatformEdge(edge);
+
+  if (train.passengerState === 'READY' && train.state === 'stopped' && onPlatform) {
+    return 'ready';
   }
-  return '--:--:--';
+  if (train.passengerState === 'BOARDING' || (train.state === 'stopped' && onPlatform)) {
+    return 'boarding';
+  }
+  if (train.state === 'stopped') return 'stopped';
+  if (isExitingEdge(edge)) return 'departing';
+  if (isEnteringEdge(edge)) return 'arriving';
+  return 'running';
 }
 
-// 从时刻表获取计划出站时间（静态）
-function getScheduledDepartTime(train: TrainPhysics): string {
+function classifyDelay(diffMin: number): DelayInfo {
+  if (diffMin <= -2) return { text: `早点 ${Math.abs(diffMin)}'`, cls: 'early' };
+  if (diffMin >= 2) return { text: `晚点 ${diffMin}'`, cls: 'late' };
+  return { text: '准点', cls: 'ontime' };
+}
+
+function getQueuedDelay(entry: ScheduleEntry): DelayInfo {
+  const cur = props.currentTick ?? 0;
+  const diff = Math.floor((cur - entry.scheduledArriveTick) / TICKS_PER_MIN);
+  return classifyDelay(diff);
+}
+
+function getActiveDelay(train: TrainPhysics): DelayInfo {
+  const cur = props.currentTick ?? 0;
+  const sa = train.scheduledArriveTick ?? cur;
+  const stopDur = train.stopDuration ?? 0;
+  const schedDep = sa + stopDur + DEPARTURE_BUFFER_TICKS;
+  const diff = Math.round((cur - schedDep) / TICKS_PER_MIN);
+  return classifyDelay(diff);
+}
+
+function getEta(train: TrainPhysics, statusKey: StatusKey): string {
+  if (statusKey === 'arriving' || statusKey === 'running') {
+    return train.scheduledArriveTick != null ? tickToHHMM(train.scheduledArriveTick) : '—';
+  }
+  // boarding/ready/departing → scheduled departure
   const entry = props.scheduleManager?.getEntryById(train.scheduleEntryId ?? train.id);
-  if (entry) {
-    return tickToTime(entry.scheduledDepartTick);
-  }
-  // 回退：用列车自身的计划到站 + 停站时长
+  if (entry) return tickToHHMM(entry.scheduledDepartTick);
   if (train.scheduledArriveTick != null && train.stopDuration != null) {
-    const buffer = train.stopBuffer ?? 0;
-    return tickToTime(train.scheduledArriveTick + train.stopDuration + buffer);
+    return tickToHHMM(train.scheduledArriveTick + train.stopDuration + (train.stopBuffer ?? 0));
   }
-  return '--:--:--';
+  return '—';
 }
 
-// Get punctuality status for queued trains (compared to scheduled arrive tick)
-function getPunctuality(scheduledTick: number): PunctualityInfo {
-  const currentTick = props.currentTick ?? 0;
-  const diffTicks = currentTick - scheduledTick;
-  const diffMinutes = Math.floor(diffTicks / TICKS_PER_GAME_MINUTE);
-
-  if (diffMinutes < -1) {
-    return { text: `早点 ${Math.abs(diffMinutes)}'`, color: '#2ecc71', minutes: diffMinutes, isDurationMode: false };
-  }
-  if (diffMinutes > 1) {
-    return { text: `晚点 ${diffMinutes}'`, color: '#e74c3c', minutes: diffMinutes, isDurationMode: false };
-  }
-  return { text: '准点', color: '#f1c40f', minutes: 0, isDurationMode: false };
-}
-
-function getDelaySpread(trainId: string): DelaySpread | null {
+function getSpread(id: string): SpreadInfo | null {
   if (!props.scheduleManager) return null;
-  const entry = props.scheduleManager.getEntryById(trainId);
+  const entry = props.scheduleManager.getEntryById(id);
   if (!entry || entry.status === 'upcoming') return null;
-  return props.scheduleManager.computeDelaySpread(entry, props.currentTick ?? 0);
+  const spread = props.scheduleManager.computeDelaySpread(entry, props.currentTick ?? 0) as DelaySpread;
+  const minutes = Math.floor(Math.abs(spread.delta) / TICKS_PER_MIN);
+  if (spread.level === 'improved') {
+    return { text: `▲ ${minutes}'`, cls: 'improved', delta: spread.delta };
+  }
+  if (spread.level === 'worsened') {
+    return { text: `▼ +${minutes}'`, cls: 'worsened', delta: spread.delta };
+  }
+  return { text: '', cls: 'neutral', delta: 0 };
 }
 
-function formatSpreadDelta(spread: DelaySpread): string {
-  const minutes = Math.floor(Math.abs(spread.delta) / 3600);
-  if (spread.level === 'improved') return `-${minutes}'`;
-  if (spread.level === 'worsened') return `+${minutes}'`;
-  return '';
-}
+const rows = computed<RowItem[]>(() => {
+  const queueIds = (props.queue ?? []).map((q) => q.id).filter(Boolean);
+  const activeRows: RowItem[] = (props.trains ?? [])
+    .filter((t) => t?.id && !t.isHandedOver)
+    .map((t) => {
+      const key = inferStatusKey(t);
+      return {
+        id: t.id,
+        statusKey: key,
+        loc: getTrainLoc(t),
+        eta: getEta(t, key),
+        delay: getActiveDelay(t),
+        spread: getSpread(t.scheduleEntryId ?? t.id),
+      };
+    });
 
-function getSpreadColor(spread: DelaySpread): string {
-  if (spread.level === 'improved') return '#2ecc71';
-  if (spread.level === 'worsened') return '#e74c3c';
-  return '#f1c40f';
-}
+  const activeIdSet = new Set(activeRows.map((r) => r.id));
+  const queuedRows: RowItem[] = queueIds
+    .filter((id) => !activeIdSet.has(id))
+    .map((id) => {
+      const entry = props.queue.find((q) => q.id === id)!;
+      return {
+        id,
+        statusKey: 'waiting' as StatusKey,
+        loc: '等待区',
+        eta: tickToHHMM(entry.scheduledArriveTick),
+        delay: getQueuedDelay(entry),
+        spread: getSpread(id),
+      };
+    });
 
-function getSpreadTriangle(spread: DelaySpread): string {
-  if (spread.level === 'worsened') return '▼';
-  return '▲';
-}
-
-// Combine all trains (queue + active)
-const allTrains = computed(() => {
-  const queueIds = (props.queue || []).map(q => q?.id).filter(Boolean);
-  const activeIds = (props.trains || [])
-      .filter(t => t?.id && !t.isHandedOver)
-      .map(t => t.id);
-
-  const uniqueIds = new Set([...queueIds, ...activeIds]);
-
-  const items = Array.from(uniqueIds).map(id => ({
-    id,
-    ...getTrainStatus(id),
-    delaySpread: getDelaySpread(id)
-  }));
-
-  // 按晚点增量降序排序：恶化最多的排最前
-  items.sort((a, b) => {
-    const deltaA = a.delaySpread?.delta ?? -Infinity;
-    const deltaB = b.delaySpread?.delta ?? -Infinity;
-    return deltaB - deltaA;
+  const all = [...activeRows, ...queuedRows];
+  // Sort: worsened first by larger delta, then by delay severity desc
+  all.sort((a, b) => {
+    const sa = a.spread?.delta ?? Number.NEGATIVE_INFINITY;
+    const sb = b.spread?.delta ?? Number.NEGATIVE_INFINITY;
+    if (sb !== sa) return sb - sa;
+    const da = a.delay.cls === 'late' ? 1 : a.delay.cls === 'early' ? -1 : 0;
+    const db = b.delay.cls === 'late' ? 1 : b.delay.cls === 'early' ? -1 : 0;
+    return db - da;
   });
-
-  return items;
+  return all;
 });
 </script>
 
 <template>
-  <div class="panel-left">
-    <h3>列车状态</h3>
-    <div class="list-container">
-       <div 
-         v-for="item in allTrains" 
-         :key="item.id"
-         class="queue-item"
-         :class="{ active: selectedId === item.id }"
-         @click="onSelect(item.id)"
-       >
-         <div class="item-header">
-           <div class="train-info">
-             <span class="train-id">{{ item.id }}</span>
-             <span class="train-location">({{ item.location }})</span>
-           </div>
-           <span class="status-badge" :style="{ background: item.statusColor }">
-             {{ item.status }}
-           </span>
-         </div>
-          <div class="item-meta">
-             <span
-               class="punctuality"
-               :class="{ 'punctuality--duration': item.punctuality.isDurationMode }"
-               :style="{ color: item.punctuality.color }"
-             >
-               {{ item.punctuality.text }}
-             </span>
-             <span
-               v-if="item.delaySpread"
-               class="delay-spread"
-               :style="{ color: getSpreadColor(item.delaySpread) }"
-             >
-               {{ getSpreadTriangle(item.delaySpread) }}{{ formatSpreadDelta(item.delaySpread) }}
-             </span>
-             <span v-if="!item.punctuality.isDurationMode" class="time-info">
-               {{ item.timeLabel }}: {{ item.estimatedTime }}
-             </span>
-          </div>
-       </div>
+  <div class="left-panel">
+    <div class="panel-head">
+      <h3>调度列表 / Trains</h3>
+      <span class="count">{{ rows.length }} · SORT: URGENCY</span>
+    </div>
+
+    <div v-if="rows.length === 0" class="train-list empty">
+      <div>
+        <div class="empty-eyebrow">NO TRAINS</div>
+        <div class="empty-msg">列表为空。等待时刻表生成下一班列车。</div>
+      </div>
+    </div>
+
+    <div v-else class="train-list">
+      <div
+        v-for="r in rows"
+        :key="r.id"
+        :class="['train-row', { selected: selectedId === r.id }]"
+        @click="$emit('select', r.id)"
+      >
+        <div class="trow-top">
+          <span class="trow-id">{{ r.id }}</span>
+          <span :class="['trow-badge', r.statusKey]">{{ STATUS_ZH[r.statusKey] }}</span>
+        </div>
+        <div class="trow-bot">
+          <span class="trow-loc">{{ r.loc }}</span>
+          <span class="trow-meta">
+            <span class="trow-eta">{{ r.eta }}</span>
+            <span :class="['trow-delay', r.delay.cls]">{{ r.delay.text }}</span>
+            <span v-if="r.spread && r.spread.text" :class="['trow-spread', r.spread.cls]">
+              {{ r.spread.text }}
+            </span>
+          </span>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.panel-left {
-  background: #1e1e1e;
-  color: #ecf0f1;
+.left-panel {
+  background: var(--bg);
+  border-right: 1px solid var(--divider);
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #333;
+  overflow: hidden;
   height: 100%;
 }
 
-h3 {
-  padding: 15px;
-  margin: 0;
-  background: #252525;
-  border-bottom: 3px solid #3498db;
-  font-size: 14px;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}
-
-.list-container {
-  overflow-y: auto;
-  flex: 1;
-  padding: 10px;
-}
-
-.queue-item {
-  background: #2c3e50;
-  margin-bottom: 8px;
-  padding: 10px;
-  border-radius: 4px;
-  cursor: pointer;
-  border-left: 4px solid transparent;
-  transition: all 0.2s;
-}
-
-.queue-item:hover {
-  background: #34495e;
-}
-
-.queue-item.active {
-  background: #34495e;
-  border-left-color: #f1c40f;
-}
-
-.item-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 6px;
-}
-
-.train-info {
+.panel-head {
+  padding: 16px 18px;
   display: flex;
   align-items: baseline;
-  gap: 6px;
-}
-
-.train-id {
-  font-family: 'Consolas', monospace;
-  font-weight: bold;
-  font-size: 16px;
-  color: #fff;
-}
-
-.train-location {
-  font-size: 11px;
-  color: #95a5a6;
-}
-
-.status-badge {
-  color: black;
-  font-size: 10px;
-  padding: 3px 8px;
-  border-radius: 3px;
-  font-weight: bold;
-  white-space: nowrap;
-}
-
-.item-meta {
-  display: flex;
   justify-content: space-between;
-  align-items: center;
+  border-bottom: 1px solid var(--divider);
+}
+.panel-head h3 {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin: 0;
+  text-transform: uppercase;
+  color: var(--fg);
+}
+.panel-head .count {
+  font-family: var(--mono);
   font-size: 11px;
-  gap: 8px;
+  color: var(--fg-ter);
+  letter-spacing: 0.08em;
 }
 
-.punctuality {
-  font-weight: bold;
-  white-space: nowrap;
-}
-
-.punctuality--duration {
-  font-size: 10px;
-  font-weight: normal;
-  opacity: 0.9;
-}
-
-.time-info {
-  color: #95a5a6;
-  text-align: right;
+.train-list {
   flex: 1;
+  overflow-y: auto;
+}
+.train-list.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-ter);
+  font-size: 13px;
+  padding: 40px 20px;
+  text-align: center;
+  line-height: 1.5;
+}
+.empty-eyebrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg-ter);
+  letter-spacing: 0.14em;
+}
+.empty-msg {
+  margin-top: 12px;
 }
 
-.delay-spread {
-  font-weight: bold;
+.train-row {
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--divider);
+  cursor: pointer;
+  position: relative;
+  transition: background 180ms var(--ease);
+}
+.train-row:hover {
+  background: var(--bg-elev);
+}
+.train-row.selected {
+  background: var(--bg-elev);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.train-row.selected::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border: 1px solid rgba(189, 243, 127, 0.18);
+}
+
+.trow-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.trow-id {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--fg);
+}
+.trow-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 3px 6px;
+  border-radius: 2px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: var(--divider);
+  color: var(--fg-sec);
+}
+.trow-badge.waiting {
+  background: rgba(168, 167, 163, 0.16);
+  color: var(--fg-sec);
+}
+.trow-badge.arriving {
+  background: rgba(121, 180, 242, 0.18);
+  color: var(--sig-blue);
+}
+.trow-badge.running {
+  background: rgba(121, 180, 242, 0.18);
+  color: var(--sig-blue);
+}
+.trow-badge.boarding {
+  background: rgba(240, 194, 76, 0.18);
+  color: var(--sig-amber);
+}
+.trow-badge.ready {
+  background: rgba(111, 224, 122, 0.18);
+  color: var(--sig-green);
+}
+.trow-badge.departing {
+  background: rgba(189, 243, 127, 0.18);
+  color: var(--accent);
+}
+.trow-badge.stopped {
+  background: rgba(241, 91, 91, 0.18);
+  color: var(--sig-red);
+}
+
+.trow-bot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.trow-loc {
+  font-size: 12px;
+  color: var(--fg-sec);
+  letter-spacing: -0.01em;
+}
+.trow-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--mono);
   font-size: 11px;
-  margin-left: 4px;
-  white-space: nowrap;
+}
+.trow-eta {
+  color: var(--fg-ter);
+  letter-spacing: 0.04em;
+}
+.trow-delay {
+  letter-spacing: 0.04em;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.trow-delay.early {
+  color: var(--early);
+}
+.trow-delay.ontime {
+  color: var(--ontime);
+}
+.trow-delay.late {
+  color: var(--late);
+}
+.trow-spread {
+  font-size: 10px;
+  color: var(--fg-ter);
+}
+.trow-spread.worsened {
+  color: var(--late);
+}
+.trow-spread.improved {
+  color: var(--early);
 }
 </style>

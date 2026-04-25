@@ -4,20 +4,24 @@ import type { ScheduleConfig } from '../core/types';
 export interface StationConfig {
     id: string;
     name: string;
+    nameEn: string;
     description: string;
     difficulty: number;
     type: 'small' | 'hub' | 'terminal';
+    enabled: boolean;
     mapData: RailMap;
     scheduleConfig: ScheduleConfig;
 }
 
 // 1. 小站 (Teaching Station) - Double Line Through, 2 Island Platforms
 export const stationSmall: StationConfig = {
-    id: 'tutorial_small',
+    id: 'tutorial',
     name: '新手教学站',
+    nameEn: 'Tutorial Terminal',
     description: '基础的四站台车站。适合练习基本的进路控制与信号闭塞。',
     difficulty: 1,
     type: 'small',
+    enabled: true,
     scheduleConfig: {
         peakIntervalRange: [4, 6],
         offPeakIntervalRange: [8, 12],
@@ -26,8 +30,9 @@ export const stationSmall: StationConfig = {
     },
     mapData: {
         nodes: {
-            // Left Throat
-            "n_L_in": { "id": "n_L_in", "x": 100, "y": 300, "type": "endpoint" },
+            // Left Throat — 入口 endpoint 推到画布外 (-200)，让进站轨道延伸到 x=0 边缘
+            // 而不是停在 x=100 留个空缺；不取太大值是为了避免列车在 1× 速度下花太久才到道岔
+            "n_L_in": { "id": "n_L_in", "x": -200, "y": 300, "type": "endpoint" },
             "n_sw_L": { "id": "n_sw_L", "x": 300, "y": 300, "type": "switch", "signalState": "green" }, // Main Switch Left
             
             // Platforms (Double Island: 4 tracks)
@@ -52,7 +57,9 @@ export const stationSmall: StationConfig = {
             "n_R_out": { "id": "n_R_out", "x": 10000, "y": 300, "type": "endpoint" }
         },
         edges: {
-            "e_entry_L": { "id": "e_entry_L", "fromNode": "n_L_in", "toNode": "n_sw_L", "length": 200, "occupiedBy": null },
+            // 长度 500：n_L_in (-200) → n_sw_L (300)，列车出生点正好在屏外，
+            // 进入可视区域后约 5 秒(1×)能到达道岔
+            "e_entry_L": { "id": "e_entry_L", "fromNode": "n_L_in", "toNode": "n_sw_L", "length": 500, "occupiedBy": null },
             
             // Throat Left
             "e_L_t1": { "id": "e_L_t1", "fromNode": "n_sw_L", "toNode": "n_p1_start", "length": 300, "occupiedBy": null, "control1": {x:400,y:300}, "control2": {x:400,y:200} },
@@ -89,11 +96,13 @@ export const stationSmall: StationConfig = {
 };
 
 export const stationHub: StationConfig = {
-    id: 'station_hub',
-    name: '中心枢纽站 (Beta)',
-    description: '复杂的8股道枢纽（目前暂用基础地图）。拥有极高的车流量。需精确控制信号以防级联晚点。',
-    difficulty: 4,
+    id: 'hub',
+    name: '中心枢纽站',
+    nameEn: 'Central Junction',
+    description: '六股道 + 多组道岔交织，高密度班次与重联列车。',
+    difficulty: 5,
     type: 'hub',
+    enabled: false,
     scheduleConfig: {
         peakIntervalRange: [2, 3],
         offPeakIntervalRange: [4, 6],
@@ -106,11 +115,13 @@ export const stationHub: StationConfig = {
 };
 
 export const stationTerminal: StationConfig = {
-    id: 'station_terminal',
-    name: '海滨尽头站 (Beta)',
-    description: '所有列车在此折返。需利用“换向”指令将列车调度至出站线路。',
+    id: 'terminal',
+    name: '终端车站',
+    nameEn: 'Northbank Terminal',
+    description: '四股道 + 车挡尽头，上下行客流并发，考验平台分配。',
     difficulty: 3,
     type: 'terminal',
+    enabled: false,
     scheduleConfig: {
         peakIntervalRange: [3, 5],
         offPeakIntervalRange: [6, 10],
@@ -188,4 +199,57 @@ export const stationTerminal: StationConfig = {
     }
 };
 
-export const allStations = [stationSmall, stationHub, stationTerminal];
+// --- Locked placeholder stations (即将发布) ---
+const emptyMap: RailMap = { nodes: {}, edges: {}, platforms: [] };
+const placeholderSchedule: ScheduleConfig = {
+    peakIntervalRange: [4, 6],
+    offPeakIntervalRange: [8, 12],
+    peakWindows: [[420, 540], [1020, 1140]],
+    directionRatio: 0.5,
+};
+
+export const stationMountain: StationConfig = {
+    id: 'mountain',
+    name: '山岭会让站',
+    nameEn: 'Ridgepass Loop',
+    description: '曲线轨道 + 会让逻辑，听候发布。',
+    difficulty: 2,
+    type: 'small',
+    enabled: false,
+    mapData: emptyMap,
+    scheduleConfig: placeholderSchedule,
+};
+
+export const stationPort: StationConfig = {
+    id: 'port',
+    name: '港城联络站',
+    nameEn: 'Portside Link',
+    description: '客货混行分流。开发中。',
+    difficulty: 4,
+    type: 'hub',
+    enabled: false,
+    mapData: emptyMap,
+    scheduleConfig: placeholderSchedule,
+};
+
+export const stationExpress: StationConfig = {
+    id: 'express',
+    name: '高速越行线',
+    nameEn: 'Express Bypass',
+    description: '高速列车不停站越行。即将开放。',
+    difficulty: 4,
+    type: 'terminal',
+    enabled: false,
+    mapData: emptyMap,
+    scheduleConfig: placeholderSchedule,
+};
+
+// 首页顺序：tutorial → terminal → hub → mountain → port → express
+export const allStations: StationConfig[] = [
+    stationSmall,
+    stationTerminal,
+    stationHub,
+    stationMountain,
+    stationPort,
+    stationExpress,
+];
