@@ -25,3 +25,26 @@ export function nextUint32(rng: PRNGState): number {
   t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
   return ((t ^ (t >>> 14)) >>> 0)
 }
+
+/** 浮点 ∈ [0, 1)。等价于 nextUint32(rng) / 2^32。 */
+export function randomFloat(rng: PRNGState): number {
+  return nextUint32(rng) / 0x100000000
+}
+
+/** 整数 ∈ [min, maxInclusive]。 */
+export function randomInt(rng: PRNGState, min: number, maxInclusive: number): number {
+  if (maxInclusive < min) throw new Error('randomInt: max < min')
+  const range = maxInclusive - min + 1
+  return min + (nextUint32(rng) % range)
+}
+
+/** 从非空数组等概率取一个。 */
+export function randomChoice<T>(rng: PRNGState, arr: readonly T[]): T {
+  if (arr.length === 0) throw new Error('randomChoice: empty array')
+  return arr[randomInt(rng, 0, arr.length - 1)]!
+}
+
+/** Bernoulli：以 p 概率返回 true。p ∈ [0, 1]。 */
+export function randomChance(rng: PRNGState, p: number): boolean {
+  return randomFloat(rng) < p
+}
