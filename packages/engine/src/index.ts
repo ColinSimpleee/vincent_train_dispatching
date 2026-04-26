@@ -28,3 +28,4 @@ export type {
 export type { AdjacencyEntry, AdjacencyIndex } from './adjacency'
 export { buildAdjacency, resolveNextEdge } from './adjacency'
 export { EventBuffer } from './events'
+export * as ENGINE_CONSTANTS from './constants'
