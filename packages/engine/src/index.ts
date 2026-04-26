@@ -9,3 +9,19 @@ export {
   randomChoice,
   randomChance,
 } from './prng'
+export type {
+  RailNode,
+  RailEdge,
+  RailMap,
+  PlatformZone,
+  SwitchGroup,
+  SwitchGroupMember,
+  TrainModel,
+  TrainPhysics,
+  EngineState,
+  EngineInput,
+  EngineEvent,
+  Invariant,
+  StepResult,
+  TrainSpawnSpec,
+} from './types'
