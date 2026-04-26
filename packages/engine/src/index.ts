@@ -27,3 +27,4 @@ export type {
 } from './types'
 export type { AdjacencyEntry, AdjacencyIndex } from './adjacency'
 export { buildAdjacency, resolveNextEdge } from './adjacency'
+export { EventBuffer } from './events'
