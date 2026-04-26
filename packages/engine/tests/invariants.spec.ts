@@ -13,7 +13,7 @@ function emptyState(): EngineState {
   }
 }
 
-function stateWith(over: Partial<TrainPhysics>, mapOver?: Partial<RailMap>): EngineState {
+function stateWith(over: Partial<TrainPhysics>, mapOver?: RailMap): EngineState {
   const base: TrainPhysics = {
     id: 't1',
     modelType: 'CR400AF',

@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, shallowRef, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, shallowRef, reactive, computed, onMounted, onUnmounted, toRaw } from 'vue'
 import GameCanvas from './components/GameCanvas.vue'
 import LeftPanel from './components/panels/LeftPanel.vue'
 import RightPanel from './components/panels/RightPanel.vue'
 import StartScreen from './components/StartScreen.vue'
-import { PhysicsEngine } from './core/PhysicsEngine'
+import { createPRNG, step, type EngineState, type PRNGState } from '@engine'
 import type { RailMap, RailNode, TrainPhysics } from './core/RailGraph'
 import { ScheduleManager } from './core/ScheduleManager'
 import type {
@@ -84,6 +84,9 @@ const waitingQueue = computed<ScheduleEntry[]>(() => {
 
 const selectedTrainId = ref<string | null>(null)
 const tick = ref(0)
+// 引擎 PRNG：开局时按 Date.now 派生 seed 注入；每 step 推进。
+// PRNG 状态自身被 step 内部 clone，外部读到的是上一帧结束时的状态。
+const enginePRNG = shallowRef<PRNGState>(createPRNG((Date.now() ^ 0x9e3779b9) >>> 0))
 let animationFrameId: number | null = null
 let lastTime = 0
 let accumulator = 0
@@ -178,7 +181,8 @@ function isMainExitEdge(edgeId: string): boolean {
 }
 
 function getTrainHalfLength(train: TrainPhysics): number {
-  return PhysicsEngine.getTrainLength(train) / 2
+  // CAR_PITCH = 30；与 packages/engine/src/constants.ts 一致
+  return ((train.isCoupled ? 16 : 8) * 30) / 2
 }
 
 // 判断列车是否在"反向出站"状态（终端站自然折返：在入口边上 dir=-1）
@@ -257,8 +261,45 @@ function loop(timestamp: number) {
 
   while (accumulator >= FIXED_STEP) {
     try {
-      PhysicsEngine.update(trains, map, FIXED_STEP, tick.value)
-      tick.value++
+      // 用当前 reactive 状态构造 EngineState 副本喂给纯函数 step
+      const engineState: EngineState = {
+        tick: tick.value,
+        trains: trains.map((t) => {
+          const raw = toRaw(t)
+          return { ...raw, path: [...raw.path], visitedPath: [...raw.visitedPath] }
+        }),
+        railMap: cloneRailMapForEngine(map),
+        rng: enginePRNG.value,
+      }
+      const result = step(engineState, [])
+
+      // 镜像回 reactive 状态：覆盖 trains / map.nodes / map.edges / tick / PRNG
+      // 列车数组用 splice 替换以保留 Vue 响应式
+      const next = result.next
+      trains.splice(0, trains.length, ...next.trains)
+      for (const id of Object.keys(next.railMap.nodes)) {
+        const target = map.nodes[id]
+        const src = next.railMap.nodes[id]!
+        if (target) Object.assign(target, src)
+        else map.nodes[id] = { ...src }
+      }
+      for (const id of Object.keys(next.railMap.edges)) {
+        const target = map.edges[id]
+        const src = next.railMap.edges[id]!
+        if (target) Object.assign(target, src)
+        else map.edges[id] = { ...src }
+      }
+      tick.value = next.tick
+      enginePRNG.value = next.rng
+
+      // 检查 invariant 违反（结构化日志，不抛错；致命情况由 step 在 dev 模式 throw）
+      for (const ev of result.events) {
+        if (ev.kind === 'invariant_violation') {
+          console.warn('[invariant]', ev.rule, ev.detail)
+        } else if (ev.kind === 'collision') {
+          throw new Error(`CRASH! Train ${ev.trainA} collided with ${ev.trainB}`)
+        }
+      }
 
       if (scheduleManager.value) {
         scheduleManager.value.ensureFutureSchedule(tick.value)
@@ -296,7 +337,23 @@ function startSim() {
   if (animationFrameId !== null) cancelAnimationFrame(animationFrameId)
   lastTime = 0
   accumulator = 0
+  // 重置引擎 PRNG，每局独立 seed
+  enginePRNG.value = createPRNG((Date.now() ^ 0x9e3779b9) >>> 0)
   animationFrameId = requestAnimationFrame(loop)
+}
+
+// 把 reactive RailMap 转换为引擎可用的纯对象（脱去 Vue 代理）
+function cloneRailMapForEngine(src: RailMap): RailMap {
+  const nodes: RailMap['nodes'] = {}
+  for (const id of Object.keys(src.nodes)) nodes[id] = { ...toRaw(src.nodes[id]!) }
+  const edges: RailMap['edges'] = {}
+  for (const id of Object.keys(src.edges)) edges[id] = { ...toRaw(src.edges[id]!) }
+  return {
+    nodes,
+    edges,
+    platforms: [...src.platforms],
+    switchGroups: src.switchGroups ? [...src.switchGroups] : undefined,
+  }
 }
 
 function setGameSpeed(s: number) {
