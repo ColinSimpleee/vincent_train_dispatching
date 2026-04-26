@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.app.json",
+  "include": ["src/**/*"],
+  "exclude": ["tests/**/*"],
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true,
+    "lib": ["ES2022"]
+  }
+}

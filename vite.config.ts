@@ -12,7 +12,9 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url))
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+      '@engine': fileURLToPath(new URL('./packages/engine/src/index.ts', import.meta.url)),
+      '@engine/': fileURLToPath(new URL('./packages/engine/src/', import.meta.url)),
     },
   },
   server: {
