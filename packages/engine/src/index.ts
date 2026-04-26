@@ -25,3 +25,5 @@ export type {
   StepResult,
   TrainSpawnSpec,
 } from './types'
+export type { AdjacencyEntry, AdjacencyIndex } from './adjacency'
+export { buildAdjacency, resolveNextEdge } from './adjacency'
