@@ -1,5 +1,6 @@
 import { buildAdjacency } from './adjacency'
 import { TICKS_PER_SECOND } from './constants'
+import { assertInvariants, isDevMode } from './invariants'
 import { detectCollisions } from './phases/collision'
 import { commitMoves } from './phases/commit'
 import { resolveConflicts } from './phases/conflict'
@@ -10,7 +11,6 @@ import type {
   EngineEvent,
   EngineInput,
   EngineState,
-  Invariant,
   StepResult,
   TrainPhysics,
 } from './types'
@@ -27,7 +27,6 @@ const FIXED_DT = 1 / TICKS_PER_SECOND
 export function step(state: EngineState, inputs: EngineInput[]): StepResult {
   const next = cloneState(state)
   const events: EngineEvent[] = []
-  const violations: Invariant[] = []
   const tick = next.tick
 
   applyInputs(next, inputs, events)
@@ -48,7 +47,45 @@ export function step(state: EngineState, inputs: EngineInput[]): StepResult {
   resolveConflicts(next.trains, tick, events)
   commitMoves(next.trains, next.railMap, tick, events)
 
+  // 维护不变量观察用计数器
+  for (const t of next.trains) {
+    if (t.speed === 0) {
+      t.staleStoppedTicks = (t.staleStoppedTicks ?? 0) + 1
+    } else {
+      t.staleStoppedTicks = 0
+    }
+    const stoppedNoPassenger = t.state === 'stopped' && t.passengerState === undefined
+    if (stoppedNoPassenger) {
+      t.stuckResumableTicks = (t.stuckResumableTicks ?? 0) + 1
+    } else {
+      t.stuckResumableTicks = 0
+    }
+    if (t.isHandedOver) {
+      t.postHandoverTicks = (t.postHandoverTicks ?? 0) + 1
+    } else {
+      t.postHandoverTicks = 0
+    }
+  }
+
   next.tick = tick + 1
+
+  const violations = assertInvariants(next, adj)
+  if (violations.length > 0) {
+    for (const v of violations) {
+      events.push({
+        tick: next.tick,
+        kind: 'invariant_violation',
+        rule: v.rule,
+        detail: v.detail,
+      })
+    }
+    if (isDevMode()) {
+      throw new Error(
+        `Invariant violations at tick ${next.tick}: ${violations.map((v) => v.rule).join(', ')}`,
+      )
+    }
+  }
+
   return { next, events, violations }
 }
 
