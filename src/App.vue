@@ -27,14 +27,17 @@ import { SCHEDULE_VISIBLE_WINDOW } from './core/constants'
 // China Railway Operation: 06:00 - 23:00
 // Start time range: 07:00 (06:00+1h) to 19:00 (23:00-4h)
 
+// UI 层独立 PRNG：仅用于不影响引擎物理状态的随机选择（开局时刻、站台号、车型耦合）
+import { randomChance, randomInt } from '@engine'
+const uiRng = createPRNG((Date.now() ^ 0xfeedface) >>> 0)
+
 // Generate random start time between 07:00 and 19:00
 function generateRandomStartTime() {
-  const minHour = 7
-  const maxHour = 19
-  const randomHour = Math.floor(Math.random() * (maxHour - minHour + 1)) + minHour
-  const randomMinute = Math.floor(Math.random() * 60)
-  const randomSecond = Math.floor(Math.random() * 60)
-  return { hours: randomHour, minutes: randomMinute, seconds: randomSecond }
+  return {
+    hours: randomInt(uiRng, 7, 19),
+    minutes: randomInt(uiRng, 0, 59),
+    seconds: randomInt(uiRng, 0, 59),
+  }
 }
 
 const gameStartTime = ref(generateRandomStartTime())
@@ -432,6 +435,7 @@ function handleStationSelect(config: StationConfig) {
     config.difficulty,
     tick.value,
     gameStartTimeOffsetTicks,
+    createPRNG((Date.now() ^ 0xc0ffee) >>> 0),
   )
 
   platformStopRecorded.clear()
@@ -833,7 +837,7 @@ function spawnTrainIntoMap(id: string): boolean {
   const entry = waitingQueue.value.find((q) => q.id === id)
   if (!entry) return false
 
-  const platformNum = Math.floor(Math.random() * 4) + 1
+  const platformNum = randomInt(uiRng, 1, 4)
 
   let path: string[] = []
   let currentEdgeId = ''
@@ -866,7 +870,7 @@ function spawnTrainIntoMap(id: string): boolean {
     path: path,
     visitedPath: [],
     modelType: entry.model,
-    isCoupled: Math.random() < 0.2,
+    isCoupled: randomChance(uiRng, 0.2),
     scheduledArriveTick: entry.scheduledArriveTick,
     scheduleEntryId: entry.id,
   }

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { ScheduleManager } from '../core/ScheduleManager'
 import type { ScheduleConfig } from '../core/types'
+import { createPRNG } from '@engine'
 
 const baseConfig: ScheduleConfig = {
   peakIntervalRange: [2, 3],
@@ -9,13 +10,15 @@ const baseConfig: ScheduleConfig = {
   directionRatio: 0.5,
 }
 
+const RNG = () => createPRNG(42)
+
 const peakStartTimeOffset = 420 * 3600
 const offPeakStartTimeOffset = 600 * 3600
 
 describe('ScheduleManager', () => {
   describe('时刻表生成', () => {
     it('构造时生成未来 30 分钟的时刻表', () => {
-      const manager = new ScheduleManager(baseConfig, 1, 0, peakStartTimeOffset)
+      const manager = new ScheduleManager(baseConfig, 1, 0, peakStartTimeOffset, RNG())
       const entries = manager.getAllEntries()
       expect(entries.length).toBeGreaterThan(0)
       const futureLimit = 108000
@@ -26,7 +29,7 @@ describe('ScheduleManager', () => {
     })
 
     it('高峰时段生成间隔为 2-3 分钟', () => {
-      const manager = new ScheduleManager(baseConfig, 1, 0, peakStartTimeOffset)
+      const manager = new ScheduleManager(baseConfig, 1, 0, peakStartTimeOffset, RNG())
       // 跳过前 3 条初始种子条目（它们的 arriveTick 都是 startTick）
       const generated = manager.getAllEntries().filter((e) => e.status === 'upcoming')
       for (let i = 1; i < generated.length; i++) {
@@ -39,7 +42,7 @@ describe('ScheduleManager', () => {
     })
 
     it('低谷时段生成间隔为 6-10 分钟', () => {
-      const manager = new ScheduleManager(baseConfig, 1, 0, offPeakStartTimeOffset)
+      const manager = new ScheduleManager(baseConfig, 1, 0, offPeakStartTimeOffset, RNG())
       const generated = manager.getAllEntries().filter((e) => e.status === 'upcoming')
       for (let i = 1; i < generated.length; i++) {
         const gap =
@@ -51,7 +54,7 @@ describe('ScheduleManager', () => {
     })
 
     it('开局有 3 趟 waiting 状态的列车', () => {
-      const manager = new ScheduleManager(baseConfig, 1, 0, 0)
+      const manager = new ScheduleManager(baseConfig, 1, 0, 0, RNG())
       const waiting = manager.getWaitingEntries()
       expect(waiting.length).toBe(3)
       // 初始列车宽限时间为 90 秒 = 5400 ticks
@@ -61,7 +64,7 @@ describe('ScheduleManager', () => {
     })
 
     it('生成的时刻表条目初始状态为 upcoming', () => {
-      const manager = new ScheduleManager(baseConfig, 1, 0, 0)
+      const manager = new ScheduleManager(baseConfig, 1, 0, 0, RNG())
       const upcoming = manager.getAllEntries().filter((e) => e.status === 'upcoming')
       expect(upcoming.length).toBeGreaterThan(0)
       for (const entry of upcoming) {
@@ -70,7 +73,7 @@ describe('ScheduleManager', () => {
     })
 
     it('偶数编号为上行，奇数编号为下行', () => {
-      const manager = new ScheduleManager(baseConfig, 1, 0, 0)
+      const manager = new ScheduleManager(baseConfig, 1, 0, 0, RNG())
       const upEntries = manager.getAllEntries().filter((e) => e.direction === 'up')
       const downEntries = manager.getAllEntries().filter((e) => e.direction === 'down')
 
@@ -85,7 +88,7 @@ describe('ScheduleManager', () => {
     })
 
     it('scheduledDepartTick = scheduledArriveTick + scheduledStopDuration', () => {
-      const manager = new ScheduleManager(baseConfig, 1, 0, 0)
+      const manager = new ScheduleManager(baseConfig, 1, 0, 0, RNG())
       for (const entry of manager.getAllEntries()) {
         expect(entry.scheduledDepartTick).toBe(
           entry.scheduledArriveTick + entry.scheduledStopDuration,
@@ -94,7 +97,7 @@ describe('ScheduleManager', () => {
     })
 
     it('停站时长在 1800-3600 ticks 范围内', () => {
-      const manager = new ScheduleManager(baseConfig, 1, 0, 0)
+      const manager = new ScheduleManager(baseConfig, 1, 0, 0, RNG())
       for (const entry of manager.getAllEntries()) {
         expect(entry.scheduledStopDuration).toBeGreaterThanOrEqual(1800)
         expect(entry.scheduledStopDuration).toBeLessThanOrEqual(3600)
@@ -104,7 +107,7 @@ describe('ScheduleManager', () => {
 
   describe('滚动补充', () => {
     it('ensureFutureSchedule 补充到未来 30 分钟', () => {
-      const manager = new ScheduleManager(baseConfig, 1, 0, 0)
+      const manager = new ScheduleManager(baseConfig, 1, 0, 0, RNG())
       const initialCount = manager.getAllEntries().length
       manager.ensureFutureSchedule(36000)
       const afterCount = manager.getAllEntries().length
@@ -115,7 +118,7 @@ describe('ScheduleManager', () => {
     })
 
     it('节流：连续调用不会重复生成', () => {
-      const manager = new ScheduleManager(baseConfig, 1, 0, 0)
+      const manager = new ScheduleManager(baseConfig, 1, 0, 0, RNG())
       manager.ensureFutureSchedule(100)
       const count1 = manager.getAllEntries().length
       manager.ensureFutureSchedule(101)
@@ -126,7 +129,7 @@ describe('ScheduleManager', () => {
 
   describe('延误模拟', () => {
     it('updateDelays 只影响 upcoming 状态的列车', () => {
-      const manager = new ScheduleManager(baseConfig, 1, 0, 0)
+      const manager = new ScheduleManager(baseConfig, 1, 0, 0, RNG())
       const entries = manager.getAllEntries()
       const firstId = entries[0]!.id
       const firstArrive = entries[0]!.scheduledArriveTick + entries[0]!.currentDelay
@@ -142,7 +145,7 @@ describe('ScheduleManager', () => {
     })
 
     it('延误不超过 ±36000 ticks 上限', () => {
-      const manager = new ScheduleManager(baseConfig, 4, 0, 0)
+      const manager = new ScheduleManager(baseConfig, 4, 0, 0, RNG())
 
       for (let i = 0; i < 100000; i++) {
         manager.updateDelays()
@@ -159,7 +162,7 @@ describe('ScheduleManager', () => {
 
   describe('状态转换', () => {
     it('checkArrivals 在正确时刻将 upcoming → waiting', () => {
-      const manager = new ScheduleManager(baseConfig, 1, 0, 0)
+      const manager = new ScheduleManager(baseConfig, 1, 0, 0, RNG())
       // 跳过初始种子，取第一个 upcoming 条目
       const first = manager.getAllEntries().find((e) => e.status === 'upcoming')!
       const effectiveArrive = first.scheduledArriveTick + first.currentDelay
@@ -175,7 +178,7 @@ describe('ScheduleManager', () => {
     })
 
     it('markAdmitted 和 markDeparted 正确转移状态', () => {
-      const manager = new ScheduleManager(baseConfig, 1, 0, 0)
+      const manager = new ScheduleManager(baseConfig, 1, 0, 0, RNG())
       const entries = manager.getAllEntries()
       const first = entries[0]!
       const arriveTick = first.scheduledArriveTick + first.currentDelay
@@ -194,7 +197,7 @@ describe('ScheduleManager', () => {
 
   describe('晚点扩散 delta 计算', () => {
     it('宽限期内 delta 为负（改善）', () => {
-      const manager = new ScheduleManager(baseConfig, 1, 0, 0)
+      const manager = new ScheduleManager(baseConfig, 1, 0, 0, RNG())
       const entries = manager.getAllEntries()
       const first = entries[0]!
       const arriveTick = first.scheduledArriveTick + first.currentDelay
@@ -211,7 +214,7 @@ describe('ScheduleManager', () => {
     })
 
     it('departed 状态 delta 固定不变', () => {
-      const manager = new ScheduleManager(baseConfig, 1, 0, 0)
+      const manager = new ScheduleManager(baseConfig, 1, 0, 0, RNG())
       const entries = manager.getAllEntries()
       const first = entries[0]!
       const arriveTick = first.scheduledArriveTick + first.currentDelay
@@ -228,7 +231,7 @@ describe('ScheduleManager', () => {
     })
 
     it('level 判定：改善 ≥ 30 秒为 improved', () => {
-      const manager = new ScheduleManager(baseConfig, 1, 0, 0)
+      const manager = new ScheduleManager(baseConfig, 1, 0, 0, RNG())
       const entries = manager.getAllEntries()
       const first = entries[0]!
       const arriveTick = first.scheduledArriveTick + first.currentDelay
@@ -246,7 +249,7 @@ describe('ScheduleManager', () => {
   describe('自适应宽限', () => {
     it('连续恶化后宽限增加', () => {
       // 使用高峰配置确保有足够多的列车（2-3 分钟间隔 → 30 分钟内 10-15 趟）
-      const manager = new ScheduleManager(baseConfig, 1, 0, peakStartTimeOffset)
+      const manager = new ScheduleManager(baseConfig, 1, 0, peakStartTimeOffset, RNG())
       const allEntries = manager.getAllEntries()
       expect(allEntries.length).toBeGreaterThanOrEqual(10)
 
@@ -278,7 +281,7 @@ describe('ScheduleManager', () => {
         lineTrafficWeight: { 京沪: 3, 沪昆: 1 },
       }
       // 使用高峰配置确保有足够多的样本
-      const manager = new ScheduleManager(multiLineConfig, 1, 0, peakStartTimeOffset)
+      const manager = new ScheduleManager(multiLineConfig, 1, 0, peakStartTimeOffset, RNG())
       const entries = manager.getAllEntries()
 
       expect(entries.length).toBeGreaterThanOrEqual(4)

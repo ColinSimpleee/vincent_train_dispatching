@@ -1,6 +1,8 @@
 import type { TrainModel } from './RailGraph'
 import type { ScheduleConfig, ScheduleEntry, DelaySpread } from './types'
 import { TICKS_PER_MINUTE, DWELL_TIME_MIN, DWELL_TIME_MAX, SPREAD_THRESHOLD } from './constants'
+import type { PRNGState } from '@engine'
+import { randomChance, randomChoice, randomFloat, randomInt } from '@engine'
 
 const FUTURE_WINDOW = 30 * TICKS_PER_MINUTE // 30 分钟 = 108000 ticks
 const DELAY_LIMIT = 36000 // ±10 分钟
@@ -23,16 +25,20 @@ export class ScheduleManager {
   /** 每个方向上最后占用的游戏分钟，用于防止同方向同分钟内多车到达 */
   private lastUsedMinute: Record<'up' | 'down', number> = { up: -1, down: -1 }
 
+  private rng: PRNGState
+
   constructor(
     config: ScheduleConfig,
     difficulty: number,
     startTick: number,
     gameStartTimeOffsetTicks: number,
+    rng: PRNGState,
   ) {
     this.config = config
     this.difficulty = difficulty
     this.gameStartTimeOffsetTicks = gameStartTimeOffsetTicks
     this.lastGeneratedTick = startTick
+    this.rng = rng
     this.seedInitialWaiting(startTick)
     this.generateUpTo(startTick + FUTURE_WINDOW)
   }
@@ -96,7 +102,7 @@ export class ScheduleManager {
 
     const [min, max] = isPeak ? this.config.peakIntervalRange : this.config.offPeakIntervalRange
 
-    return min + Math.random() * (max - min)
+    return min + randomFloat(this.rng) * (max - min)
   }
 
   private tickToGameMinute(tick: number): number {
@@ -106,21 +112,20 @@ export class ScheduleManager {
   }
 
   private createEntry(arriveTick: number): ScheduleEntry {
-    const isUp = Math.random() < this.config.directionRatio
+    const isUp = randomChance(this.rng, this.config.directionRatio)
     const direction: 'up' | 'down' = isUp ? 'up' : 'down'
 
     const baseNum = this.nextTrainNumber++
     const num = isUp ? baseNum * 2 : baseNum * 2 + 1
 
-    const prefix = Math.random() > 0.5 ? 'G' : 'D'
+    const prefix = randomChance(this.rng, 0.5) ? 'G' : 'D'
     const id = `${prefix}${num}`
 
-    const model = TRAIN_MODELS[Math.floor(Math.random() * TRAIN_MODELS.length)]!
-    const stopDuration =
-      DWELL_TIME_MIN + Math.floor(Math.random() * (DWELL_TIME_MAX - DWELL_TIME_MIN + 1))
+    const model = randomChoice(this.rng, TRAIN_MODELS)
+    const stopDuration = randomInt(this.rng, DWELL_TIME_MIN, DWELL_TIME_MAX)
 
     const maxInitialDelay = this.difficulty * 1800
-    const initialDelay = Math.floor(-maxInitialDelay + Math.random() * 2 * maxInitialDelay)
+    const initialDelay = maxInitialDelay > 0 ? randomInt(this.rng, -maxInitialDelay, maxInitialDelay) : 0
 
     const line = this.assignLine()
 
@@ -143,14 +148,14 @@ export class ScheduleManager {
 
     if (lineTrafficWeight) {
       const totalWeight = Object.values(lineTrafficWeight).reduce((a, b) => a + b, 0)
-      let r = Math.random() * totalWeight
+      let r = randomFloat(this.rng) * totalWeight
       for (const line of lines) {
         r -= lineTrafficWeight[line] ?? 1
         if (r <= 0) return line
       }
     }
 
-    return lines[Math.floor(Math.random() * lines.length)]
+    return randomChoice(this.rng, lines)
   }
 
   ensureFutureSchedule(currentTick: number): void {
@@ -164,8 +169,9 @@ export class ScheduleManager {
     for (const entry of this.entries) {
       if (entry.status !== 'upcoming') continue
 
-      if (Math.random() < DELAY_DRIFT_PROBABILITY) {
-        const drift = Math.floor((Math.random() * 2 - 1) * DELAY_DRIFT_AMPLITUDE * this.difficulty)
+      if (randomChance(this.rng, DELAY_DRIFT_PROBABILITY)) {
+        const amp = DELAY_DRIFT_AMPLITUDE * this.difficulty
+        const drift = amp > 0 ? randomInt(this.rng, -amp, amp) : 0
         entry.currentDelay = Math.max(
           -DELAY_LIMIT,
           Math.min(DELAY_LIMIT, entry.currentDelay + drift),
