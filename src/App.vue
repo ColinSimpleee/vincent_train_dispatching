@@ -5,6 +5,7 @@ import LeftPanel from './components/panels/LeftPanel.vue'
 import RightPanel from './components/panels/RightPanel.vue'
 import StartScreen from './components/StartScreen.vue'
 import { createPRNG, step, type EngineState, type PRNGState } from '@engine'
+import { EventBus } from '@/game/EventBus'
 import type { RailMap, RailNode, TrainPhysics } from './core/RailGraph'
 import { ScheduleManager } from './core/ScheduleManager'
 import type {
@@ -89,7 +90,10 @@ const selectedTrainId = ref<string | null>(null)
 const tick = ref(0)
 // 引擎 PRNG：开局时按 Date.now 派生 seed 注入；每 step 推进。
 // PRNG 状态自身被 step 内部 clone，外部读到的是上一帧结束时的状态。
-const enginePRNG = shallowRef<PRNGState>(createPRNG((Date.now() ^ 0x9e3779b9) >>> 0))
+const engineSeed = ref<number>((Date.now() ^ 0x9e3779b9) >>> 0)
+const enginePRNG = shallowRef<PRNGState>(createPRNG(engineSeed.value))
+// 事件总线：累积引擎事件，供导出/订阅
+const eventBus = new EventBus(50_000)
 let animationFrameId: number | null = null
 let lastTime = 0
 let accumulator = 0
@@ -295,6 +299,9 @@ function loop(timestamp: number) {
       tick.value = next.tick
       enginePRNG.value = next.rng
 
+      // 把事件转发到 UI 层 EventBus（用于导出 + Replay 工具）
+      eventBus.emit(result.events)
+
       // 检查 invariant 违反（结构化日志，不抛错；致命情况由 step 在 dev 模式 throw）
       for (const ev of result.events) {
         if (ev.kind === 'invariant_violation') {
@@ -340,9 +347,30 @@ function startSim() {
   if (animationFrameId !== null) cancelAnimationFrame(animationFrameId)
   lastTime = 0
   accumulator = 0
-  // 重置引擎 PRNG，每局独立 seed
-  enginePRNG.value = createPRNG((Date.now() ^ 0x9e3779b9) >>> 0)
+  // 重置引擎 PRNG 与事件总线，每局独立
+  engineSeed.value = (Date.now() ^ 0x9e3779b9) >>> 0
+  enginePRNG.value = createPRNG(engineSeed.value)
+  eventBus.clear()
   animationFrameId = requestAnimationFrame(loop)
+}
+
+function handleExportEvents() {
+  const json = eventBus.exportJSON({
+    seed: engineSeed.value,
+    engineVersion: '0.1.0',
+    stationId: activeStation.value?.id,
+    startedAt: new Date().toISOString(),
+  })
+  const blob = new Blob([json], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `events-${activeStation.value?.id ?? 'unknown'}-${Date.now()}.json`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+  pushToast('事件流已导出', 'action', 1800)
 }
 
 // 把 reactive RailMap 转换为引擎可用的纯对象（脱去 Vue 代理）
@@ -992,6 +1020,7 @@ onUnmounted(() => {
         :isReverseStation="isReverseStation"
         @action="handleAction"
         @speed-change="setGameSpeed"
+        @export-events="handleExportEvents"
       />
     </div>
 

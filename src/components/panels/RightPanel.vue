@@ -15,6 +15,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'action', action: TrainAction): void;
   (e: 'speed-change', s: number): void;
+  (e: 'export-events'): void;
 }>();
 
 const TICKS_PER_MIN = 3600;
@@ -206,10 +207,37 @@ function clickSpeed(o: SpeedOpt) {
         </div>
       </div>
     </div>
+    <div class="export-row">
+      <button class="btn-export" @click="emit('export-events')" title="导出当前局事件流为 JSON（用于复现 bug）">
+        ⤓ 导出事件流
+      </button>
+    </div>
   </div>
 </template>
 
 <style scoped>
+.export-row {
+  margin-top: auto;
+  padding: 8px 12px;
+  border-top: 1px solid var(--divider);
+}
+.btn-export {
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--divider-2);
+  color: var(--fg-sec);
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 6px 10px;
+  border-radius: 2px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: all 200ms var(--ease);
+}
+.btn-export:hover {
+  color: var(--fg);
+  border-color: var(--fg-sec);
+}
 .right-panel {
   background: var(--bg);
   border-left: 1px solid var(--divider);
