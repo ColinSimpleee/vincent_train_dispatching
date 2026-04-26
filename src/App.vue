@@ -4,8 +4,10 @@ import GameCanvas from './components/GameCanvas.vue'
 import LeftPanel from './components/panels/LeftPanel.vue'
 import RightPanel from './components/panels/RightPanel.vue'
 import StartScreen from './components/StartScreen.vue'
-import { createPRNG, step, type EngineState, type PRNGState } from '@engine'
+import { createPRNG, step, type EngineState, type PRNGState, type EngineInput } from '@engine'
 import { EventBus } from '@/game/EventBus'
+import { InputRecorder } from '@/game/InputRecorder'
+import ReplayPanel from '@/components/ReplayPanel.vue'
 import type { RailMap, RailNode, TrainPhysics } from './core/RailGraph'
 import { ScheduleManager } from './core/ScheduleManager'
 import type {
@@ -94,6 +96,12 @@ const engineSeed = ref<number>((Date.now() ^ 0x9e3779b9) >>> 0)
 const enginePRNG = shallowRef<PRNGState>(createPRNG(engineSeed.value))
 // 事件总线：累积引擎事件，供导出/订阅
 const eventBus = new EventBus(50_000)
+// 输入流采集：影子记录玩家输入（不喂给 step；引擎仍直接读 reactive 状态）
+// 仅用于 export 时一同打包，replay 时回放
+const inputRecorder = new InputRecorder()
+// 开局快照：handleStationSelect 时保存，export 时一并打包
+const initialEngineSnapshot = shallowRef<EngineState | null>(null)
+const isDev = import.meta.env.DEV
 let animationFrameId: number | null = null
 let lastTime = 0
 let accumulator = 0
@@ -347,30 +355,48 @@ function startSim() {
   if (animationFrameId !== null) cancelAnimationFrame(animationFrameId)
   lastTime = 0
   accumulator = 0
-  // 重置引擎 PRNG 与事件总线，每局独立
+  // 重置引擎 PRNG / 事件总线 / 输入流，每局独立
   engineSeed.value = (Date.now() ^ 0x9e3779b9) >>> 0
   enginePRNG.value = createPRNG(engineSeed.value)
   eventBus.clear()
+  inputRecorder.reset()
+  // 保存开局快照（用 createPRNG(seed) 而不是当前 enginePRNG，确保可重放）
+  initialEngineSnapshot.value = {
+    tick: 0,
+    trains: [],
+    railMap: cloneRailMapForEngine(map),
+    rng: createPRNG(engineSeed.value),
+  }
   animationFrameId = requestAnimationFrame(loop)
 }
 
 function handleExportEvents() {
-  const json = eventBus.exportJSON({
+  // 导出自包含的 replay 包：seed + initialState + 输入流 + 期望事件流
+  const replayPackage = {
     seed: engineSeed.value,
     engineVersion: '0.1.0',
     stationId: activeStation.value?.id,
     startedAt: new Date().toISOString(),
-  })
+    initialState: initialEngineSnapshot.value,
+    inputs: inputRecorder.snapshot(),
+    expectedEvents: eventBus.snapshot(),
+  }
+  const json = JSON.stringify(replayPackage, null, 2)
   const blob = new Blob([json], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `events-${activeStation.value?.id ?? 'unknown'}-${Date.now()}.json`
+  a.download = `replay-${activeStation.value?.id ?? 'unknown'}-${Date.now()}.json`
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
-  pushToast('事件流已导出', 'action', 1800)
+  pushToast('Replay 包已导出', 'action', 1800)
+}
+
+// 影子记录玩家动作（不影响 step 调用，仅供导出/replay）
+function recordInput(input: EngineInput): void {
+  inputRecorder.record(input)
 }
 
 // 把 reactive RailMap 转换为引擎可用的纯对象（脱去 Vue 代理）
@@ -520,6 +546,15 @@ function toggleSwitchGroup(groupId: string) {
   for (const m of group.members) {
     const n = map.nodes[m.nodeId]
     if (n) n.switchState = m.states[newMode] ?? 0
+    // 影子记录：每个成员 toggle 一次（步进式：record 多次以达到目标 state）
+    if (n) {
+      const targetState = m.states[newMode] ?? 0
+      const out = Object.values(map.edges).filter((e) => e.fromNode === m.nodeId).length
+      const steps = out > 0 ? (targetState - currentState + out) % out : 0
+      for (let i = 0; i < steps; i++) {
+        recordInput({ tick: tick.value, type: 'switch_toggle', payload: { nodeId: m.nodeId } })
+      }
+    }
   }
 }
 
@@ -675,6 +710,11 @@ function handleAction(action: TrainAction) {
       if (train) {
         handleDepartAction(train)
         addLog({ tick: tick.value, gameTime: gameTime.value, trainId: train.id, event: 'depart' })
+        recordInput({
+          tick: tick.value,
+          type: 'depart',
+          payload: { trainId: train.id, targetExitNodeId: getExitNodeId() },
+        })
       }
       break
     }
@@ -685,6 +725,11 @@ function handleAction(action: TrainAction) {
         train.speed = 0
         train.state = 'stopped'
         addLog({ tick: tick.value, gameTime: gameTime.value, trainId: train.id, event: 'stop' })
+        recordInput({
+          tick: tick.value,
+          type: 'stop',
+          payload: { trainId: train.id },
+        })
       }
       break
     }
@@ -856,8 +901,10 @@ function handleKeyPress(event: KeyboardEvent) {
 
     const current = node.switchState ?? 0
     node.switchState = (current + 1) % outgoingEdges.length
+    recordInput({ tick: tick.value, type: 'switch_toggle', payload: { nodeId: mapping.nodeId } })
   } else if (mapping.type === 'signal') {
     node.signalState = node.signalState === 'green' ? 'red' : 'green'
+    recordInput({ tick: tick.value, type: 'signal_toggle', payload: { nodeId: mapping.nodeId } })
   }
 }
 
@@ -918,6 +965,25 @@ function spawnTrainIntoMap(id: string): boolean {
 
   spawnEdge.occupiedBy = newTrain.id
   trains.push(newTrain)
+
+  // 影子记录 admit input（用于 replay 复现）
+  recordInput({
+    tick: tick.value,
+    type: 'admit',
+    payload: {
+      trainSpec: {
+        id: newTrain.id,
+        modelType: newTrain.modelType,
+        isCoupled: newTrain.isCoupled,
+        currentEdgeId: newTrain.currentEdgeId,
+        path: [...newTrain.path],
+        direction: newTrain.direction,
+        speed: newTrain.speed,
+        scheduleEntryId: newTrain.scheduleEntryId,
+        scheduledArriveTick: newTrain.scheduledArriveTick,
+      },
+    },
+  })
 
   if (scheduleManager.value) {
     scheduleManager.value.markAdmitted(entry.id)
@@ -1042,6 +1108,7 @@ onUnmounted(() => {
     />
 
     <Onboarding v-if="showOnboarding" @close="showOnboarding = false" />
+    <ReplayPanel v-if="isDev" />
   </div>
 
   <Toast :toasts="toasts" />
